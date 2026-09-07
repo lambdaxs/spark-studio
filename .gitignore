@@ -1,0 +1,13 @@
+node_modules
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/course-assets
+dist
+.env
+*.log
+.DS_Store
+*.tsbuildinfo
+web/dist
+server/dist

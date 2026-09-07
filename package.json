@@ -1,0 +1,13 @@
+{
+  "name": "workbench",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"pnpm --filter server dev\" \"pnpm --filter web dev\"",
+    "dev:server": "pnpm --filter server dev",
+    "dev:web": "pnpm --filter web dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "packageManager": "pnpm@11.8.0"
+}
