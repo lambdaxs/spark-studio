@@ -52,7 +52,7 @@ textarea {
 .topbar {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 200px 1fr 140px;
+  grid-template-columns: 200px 1fr auto;
   align-items: center;
   gap: 16px;
   padding: 0 16px;
@@ -161,6 +161,69 @@ textarea {
   margin-top: auto;
 }
 
+.login {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 32px 16px;
+}
+
+.login-card {
+  width: min(400px, 100%);
+  background: var(--pane);
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px #e8e3d9;
+  padding: 28px 26px 26px;
+}
+
+.login-brand {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.login-card h1 {
+  margin: 10px 0 8px;
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.login-lead {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.login-card label {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.login-card input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--pane);
+}
+
+.login-error {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #b45309;
+}
+
+.login-card .primary-btn {
+  width: 100%;
+  margin-top: 4px;
+}
+
 .settings {
   height: 100%;
   overflow: auto;
@@ -176,6 +239,77 @@ textarea {
   padding: 8px 22px 24px;
 }
 
+.settings-card + .settings-card {
+  margin-top: 16px;
+}
+
+.settings-card-wide {
+  width: min(720px, 100%);
+}
+
+.settings-h {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-pre-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.settings-pre {
+  flex: 1;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+}
+
+.settings-pre-wrap .text-btn {
+  flex-shrink: 0;
+  margin-top: 8px;
+}
+
+.settings-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 18px;
+  font-size: 13px;
+}
+
+.settings-table th,
+.settings-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 7px 12px 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-table th {
+  color: var(--muted);
+  font-weight: 550;
+}
+
+.settings-table code,
+.settings-lead code,
+.settings-tools code {
+  font-size: 12px;
+}
+
+.settings-tools {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
 .settings-lead {
   margin: 0 0 18px;
   color: var(--muted);
@@ -187,6 +321,10 @@ textarea {
   display: block;
   font-size: 13px;
   color: var(--muted);
+}
+
+.settings-form label + label {
+  margin-top: 14px;
 }
 
 .settings-form input {

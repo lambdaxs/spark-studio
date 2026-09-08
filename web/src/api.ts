@@ -151,7 +151,34 @@ export type TrashRow = {
 export type SettingsStatus = {
   cursorApiKeyConfigured: boolean;
   cursorApiKeyHint: string;
+  workbenchTokenConfigured: boolean;
+  workbenchTokenHint: string;
+  mcpPublicUrl: string;
+  mcpUrl: string;
 };
+
+export type SettingsPatch = {
+  cursorApiKey?: string;
+  workbenchToken?: string;
+  mcpPublicUrl?: string;
+};
+
+export type AuthMe = {
+  authenticated: boolean;
+  setupRequired: boolean;
+  username: string | null;
+};
+
+export class UnauthorizedError extends Error {
+  constructor() {
+    super("unauthorized");
+    this.name = "UnauthorizedError";
+  }
+}
+
+function notifyUnauthorized() {
+  window.dispatchEvent(new Event("workbench:unauthorized"));
+}
 
 export type BindTargets = {
   collections: { id: string; title: string; kind: "collection" }[];
@@ -159,6 +186,10 @@ export type BindTargets = {
 };
 
 async function json<T>(res: Response): Promise<T> {
+  if (res.status === 401) {
+    notifyUnauthorized();
+    throw new UnauthorizedError();
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || res.statusText);
@@ -168,13 +199,48 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const api = {
+  me: () => fetch("/api/auth/me").then((r) => json<AuthMe>(r)),
+  login: async (username: string, password: string) => {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) {
+      throw new Error(res.status === 429 ? "尝试次数过多，稍后再试" : "用户名或密码不对");
+    }
+    return res.json() as Promise<AuthMe>;
+  },
+  setup: async (username: string, password: string) => {
+    const res = await fetch("/api/auth/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text.includes("password too short") ? "密码至少 8 位" : "无法创建账号");
+    }
+    return res.json() as Promise<AuthMe>;
+  },
+  logout: () => fetch("/api/auth/logout", { method: "POST" }).then((r) => json<{ ok: boolean }>(r)),
+  saveCredentials: (username: string, password: string) =>
+    fetch("/api/auth/credentials", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    }).then((r) => json<AuthMe>(r)),
   settings: () => fetch("/api/settings").then((r) => json<SettingsStatus>(r)),
-  saveSettings: (cursorApiKey: string) =>
+  saveSettings: (patch: SettingsPatch) =>
     fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cursorApiKey }),
+      body: JSON.stringify(patch),
     }).then((r) => json<SettingsStatus>(r)),
+  generateWorkbenchToken: () =>
+    fetch("/api/settings/workbench-token", { method: "POST" }).then((r) =>
+      json<SettingsStatus & { token: string }>(r),
+    ),
   collections: () => fetch("/api/collections").then((r) => json<Collection[]>(r)),
   groups: () => fetch("/api/groups").then((r) => json<Group[]>(r)),
   items: (collectionId: string, query: { groupId?: string; ungrouped?: boolean }) => {
@@ -366,6 +432,10 @@ export async function streamChat(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, extra }),
   });
+  if (res.status === 401) {
+    notifyUnauthorized();
+    return { error: "登录已过期" };
+  }
   if (!res.ok || !res.body) {
     return { error: await res.text() };
   }
@@ -408,6 +478,10 @@ export async function streamLesson(
   onDelta: (text: string) => void,
 ): Promise<{ error?: string; lesson?: LessonDetail }> {
   const res = await fetch(`/api/lessons/${id}/generate`, { method: "POST" });
+  if (res.status === 401) {
+    notifyUnauthorized();
+    return { error: "登录已过期" };
+  }
   if (!res.ok || !res.body) {
     return { error: await res.text() };
   }

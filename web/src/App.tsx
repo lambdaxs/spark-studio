@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CollectionsPage } from "./CollectionsPage";
 import { TodosPage } from "./TodosPage";
 import { WikiPage } from "./WikiPage";
@@ -6,7 +6,9 @@ import { PublishPage } from "./PublishPage";
 import { CoursesPage } from "./CoursesPage";
 import { TrashPage } from "./TrashPage";
 import { SettingsPage } from "./SettingsPage";
+import { LoginPage } from "./LoginPage";
 import { IconCap, IconCheck, IconGear, IconPen, IconSearch, IconStar, IconWiki } from "./Icons";
+import { api, type AuthMe } from "./api";
 import { ShellContext } from "./shell";
 
 const modules = [
@@ -19,7 +21,7 @@ const modules = [
 
 type ModuleId = (typeof modules)[number]["id"];
 
-export function App() {
+function Workbench({ user, onLogout }: { user: string; onLogout: () => void }) {
   const [mod, setMod] = useState<ModuleId>("collections");
   const [seen, setSeen] = useState<ReadonlySet<ModuleId>>(() => new Set(["collections"]));
   const [query, setQuery] = useState("");
@@ -64,7 +66,10 @@ export function App() {
             >
               回收站
             </button>
-            <span>本机工作台</span>
+            <span>{user}</span>
+            <button type="button" onClick={() => void onLogout()}>
+              退出
+            </button>
           </div>
         </header>
         <nav className="rail">
@@ -116,10 +121,34 @@ export function App() {
               <PublishPage />
             </div>
           ) : null}
-          {settingsOpen ? <SettingsPage /> : null}
+          {settingsOpen ? <SettingsPage username={user} /> : null}
           {trashOpen ? <TrashPage /> : null}
         </main>
       </div>
     </ShellContext.Provider>
   );
+}
+
+export function App() {
+  const [auth, setAuth] = useState<AuthMe>();
+
+  useEffect(() => {
+    void api.me().then(setAuth);
+    function onUnauth() {
+      void api.me().then(setAuth);
+    }
+    window.addEventListener("workbench:unauthorized", onUnauth);
+    return () => window.removeEventListener("workbench:unauthorized", onUnauth);
+  }, []);
+
+  async function logout() {
+    await api.logout();
+    setAuth({ authenticated: false, setupRequired: false, username: null });
+  }
+
+  if (!auth) return <div className="login" />;
+  if (!auth.authenticated) {
+    return <LoginPage setupRequired={auth.setupRequired} onAuthed={setAuth} />;
+  }
+  return <Workbench user={auth.username ?? ""} onLogout={() => void logout()} />;
 }

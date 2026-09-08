@@ -1,9 +1,26 @@
+import fs from "node:fs";
+import path from "node:path";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { streamItemChat, streamLessonBody } from "./agent.js";
-import { setCursorApiKey, settingsStatus } from "./settings.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { createWorkbenchMcpServer } from "./mcp-tools.js";
+import { generateWorkbenchToken, settingsStatus, updateSettings } from "./settings.js";
+import {
+  attachSession,
+  authStatus,
+  checkLogin,
+  clearSession,
+  clientKey,
+  hasCredentials,
+  isPublicApi,
+  loginLimited,
+  readSession,
+  setCredentials,
+} from "./auth.js";
+import { workspaceRoot } from "./db.js";
 import {
   addLink,
   createCollection,
@@ -73,20 +90,112 @@ const importSchema = z.object({
   groups: z.array(z.string()).optional(),
 });
 
-function requireImportAuth(c: { req: { header: (n: string) => string | undefined } }) {
+function tokenError(
+  c: { json: (body: unknown, status: 401 | 503) => Response },
+): Response | null {
   const token = process.env.WORKBENCH_TOKEN?.trim();
-  if (!token) return null;
+  if (!token) return c.json({ error: "workbench token not configured" }, 503);
   const header = c.req.header("authorization") ?? "";
-  const got = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (got !== token) return "unauthorized";
+  const got = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (got !== token) return c.json({ error: "unauthorized" }, 401);
   return null;
 }
 
 export const app = new Hono();
 
-app.use("/api/*", cors({ origin: "http://127.0.0.1:5173" }));
+app.use(
+  "/api/*",
+  cors({
+    origin: ["http://127.0.0.1:5173", "http://localhost:5173"],
+    credentials: true,
+  }),
+);
+
+app.use("/api/*", async (c, next) => {
+  if (c.req.method === "OPTIONS") return next();
+  if (isPublicApi(c.req.path)) return next();
+  if (!readSession(c)) return c.json({ error: "unauthorized" }, 401);
+  return next();
+});
+app.use(
+  "/mcp",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+    allowHeaders: [
+      "Content-Type",
+      "Authorization",
+      "mcp-session-id",
+      "Last-Event-ID",
+      "mcp-protocol-version",
+    ],
+    exposeHeaders: ["mcp-session-id", "mcp-protocol-version"],
+  }),
+);
+
+app.all("/mcp", async (c) => {
+  if (c.req.method === "OPTIONS") return c.body(null, 204);
+  const denied = tokenError(c);
+  if (denied) return denied;
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+  const mcp = createWorkbenchMcpServer();
+  await mcp.connect(transport);
+  return transport.handleRequest(c.req.raw);
+});
 
 app.get("/api/health", (c) => c.json({ ok: true }));
+
+app.get("/api/auth/me", (c) => c.json(authStatus(c)));
+
+app.post("/api/auth/setup", async (c) => {
+  if (hasCredentials()) return c.json({ error: "already configured" }, 409);
+  const body = await c.req.json();
+  const username = String(body.username ?? "");
+  const password = String(body.password ?? "");
+  try {
+    await setCredentials(username, password);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "invalid" }, 400);
+  }
+  const name = username.trim();
+  attachSession(c, name);
+  return c.json({ authenticated: true, setupRequired: false, username: name });
+});
+
+app.post("/api/auth/login", async (c) => {
+  const ip = clientKey(c);
+  if (loginLimited(ip)) return c.json({ error: "too many attempts" }, 429);
+  const body = await c.req.json();
+  const username = String(body.username ?? "");
+  const password = String(body.password ?? "");
+  if (!(await checkLogin(username, password))) {
+    return c.json({ error: "invalid credentials" }, 401);
+  }
+  const name = username.trim();
+  attachSession(c, name);
+  return c.json({ authenticated: true, setupRequired: false, username: name });
+});
+
+app.post("/api/auth/logout", (c) => {
+  clearSession(c);
+  return c.json({ ok: true });
+});
+
+app.put("/api/auth/credentials", async (c) => {
+  const body = await c.req.json();
+  const username = String(body.username ?? "");
+  const password = String(body.password ?? "");
+  try {
+    await setCredentials(username, password);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "invalid" }, 400);
+  }
+  const name = username.trim();
+  attachSession(c, name);
+  return c.json({ authenticated: true, setupRequired: false, username: name });
+});
 
 app.get("/api/collections", (c) => c.json(listCollections()));
 
@@ -142,9 +251,16 @@ app.get("/api/settings", (c) => c.json(settingsStatus()));
 
 app.put("/api/settings", async (c) => {
   const body = await c.req.json();
-  const key = typeof body.cursorApiKey === "string" ? body.cursorApiKey : "";
-  return c.json(await setCursorApiKey(key));
+  return c.json(
+    await updateSettings({
+      cursorApiKey: typeof body.cursorApiKey === "string" ? body.cursorApiKey : undefined,
+      workbenchToken: typeof body.workbenchToken === "string" ? body.workbenchToken : undefined,
+      mcpPublicUrl: typeof body.mcpPublicUrl === "string" ? body.mcpPublicUrl : undefined,
+    }),
+  );
 });
+
+app.post("/api/settings/workbench-token", (c) => c.json(generateWorkbenchToken()));
 
 app.get("/api/items/:id/messages", (c) => {
   return c.json(listMessages(c.req.param("id")));
@@ -166,8 +282,8 @@ app.delete("/api/items/:id/groups/:groupId", (c) => {
 });
 
 app.post("/api/import/items", async (c) => {
-  const denied = requireImportAuth(c);
-  if (denied) return c.json({ error: "unauthorized" }, 401);
+  const denied = tokenError(c);
+  if (denied) return denied;
   const parsed = importSchema.safeParse(await c.req.json());
   if (!parsed.success) {
     return c.json({ error: parsed.error.flatten() }, 400);
@@ -504,14 +620,14 @@ app.post("/api/lessons/:id/generate", (c) => {
 });
 
 app.get("/api/export/variants", (c) => {
-  const denied = requireImportAuth(c);
-  if (denied) return c.json({ error: "unauthorized" }, 401);
+  const denied = tokenError(c);
+  if (denied) return denied;
   return c.json(listReadyExports());
 });
 
 app.get("/api/export/variants/:draftId/:platform", (c) => {
-  const denied = requireImportAuth(c);
-  if (denied) return c.json({ error: "unauthorized" }, 401);
+  const denied = tokenError(c);
+  if (denied) return denied;
   const platform = asPlatform(c.req.param("platform"));
   if (!platform) return c.json({ error: "bad platform" }, 400);
   const pack = exportVariant(c.req.param("draftId"), platform);
@@ -555,5 +671,38 @@ app.post("/api/items/:id/chat", async (c) => {
         data: JSON.stringify({ code, detail }),
       });
     }
+  });
+});
+
+const webDist = path.join(workspaceRoot, "web/dist");
+const mime: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+};
+
+app.get("*", (c) => {
+  if (c.req.path.startsWith("/api") || c.req.path.startsWith("/mcp")) {
+    return c.json({ error: "not found" }, 404);
+  }
+  if (!fs.existsSync(webDist)) return c.json({ error: "not found" }, 404);
+  const url = new URL(c.req.url);
+  let rel = decodeURIComponent(url.pathname);
+  if (rel === "/") rel = "/index.html";
+  const file = path.normalize(path.join(webDist, rel));
+  if (!file.startsWith(webDist)) return c.json({ error: "not found" }, 404);
+  const target =
+    fs.existsSync(file) && fs.statSync(file).isFile()
+      ? file
+      : path.join(webDist, "index.html");
+  if (!fs.existsSync(target)) return c.json({ error: "not found" }, 404);
+  return c.body(fs.readFileSync(target), 200, {
+    "Content-Type": mime[path.extname(target)] ?? "application/octet-stream",
   });
 });
