@@ -1,6 +1,6 @@
 # Spark Studio · 产品说明
 
-本文描述个人知识工作台（仓库名 spark-studio）的背景、愿景，以及当前已落地的功能模块。界面绘图约束见 [product-design-spec.md](./product-design-spec.md)。
+本文描述个人知识工作台（仓库名 spark-studio）的背景、愿景，以及当前已落地的功能模块。讨论过程与拍板记录见 [design-history.md](./design-history.md)。界面绘图约束见 [product-design-spec.md](./product-design-spec.md)。给下一任 AI 的阅读顺序见 [README.md](./README.md)。
 
 ---
 
