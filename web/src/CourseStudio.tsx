@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CourseMindMap } from "./CourseMindMap";
+import { ChatError, ChatThread } from "./ChatThread";
 import { HoverDelete } from "./HoverDelete";
 import { IconBack, IconClip, IconHistory, IconPlus, IconSend } from "./Icons";
-import { MarkdownView } from "./MarkdownDoc";
 import {
   api,
   streamChat,
@@ -12,6 +12,7 @@ import {
   type CourseHistoryRow,
   type CourseNode,
 } from "./api";
+import { useShell } from "./shell";
 
 function lessonCount(nodes: CourseNode[]): number {
   return nodes.reduce(
@@ -44,13 +45,15 @@ export function CourseStudio({
   onOpenBook: (id: string) => void;
   onSwitch: (id: string) => void;
 }) {
+  const { openSettings } = useShell();
   const [course, setCourse] = useState<CourseDetail>();
   const [history, setHistory] = useState<CourseHistoryRow[]>([]);
   const [targets, setTargets] = useState<BindTargets>({ collections: [], items: [] });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string>();
+  const [err, setErr] = useState<{ message: string; code?: string }>();
+  const lastText = useRef("");
   const [side, setSide] = useState<"outline" | "map">("outline");
   const [histOpen, setHistOpen] = useState(false);
   const [matsOpen, setMatsOpen] = useState(false);
@@ -75,9 +78,10 @@ export function CourseStudio({
     void refreshHistory();
   }, [courseId]);
 
-  async function send() {
-    if (!course || locked || !draft.trim() || busy) return;
-    const text = draft.trim();
+  async function send(override?: string) {
+    const text = (override ?? draft).trim();
+    if (!course || locked || !text || busy) return;
+    lastText.current = text;
     setDraft("");
     setBusy(true);
     setErr(undefined);
@@ -92,7 +96,7 @@ export function CourseStudio({
       setMessages((m) => m.map((x) => (x.id === asst.id ? { ...asst } : x)));
     });
     if (result.error) {
-      setErr(result.error);
+      setErr({ message: result.error, code: result.code });
       setMessages((m) => m.filter((x) => x.id !== asst.id || asst.content));
     }
     setBusy(false);
@@ -150,25 +154,29 @@ export function CourseStudio({
       </header>
 
       <section className="studio-chat">
-        <div className="agent-log studio-log">
-          {messages.length === 0 ? (
+        {messages.length === 0 ? (
+          <div className="agent-log studio-log">
             <div className="studio-hint">
               {locked
                 ? "这场设计对话已被清空，或还没有留下消息。"
                 : "先说你要学什么、基础和范围。有目录之后，右侧才会出现大纲和导图。"}
             </div>
-          ) : (
-            messages.map((m) => (
-              <div key={m.id} className={`bubble ${m.role}`}>
-                {m.role === "assistant" ? <MarkdownView compact>{m.content}</MarkdownView> : m.content}
-              </div>
-            ))
-          )}
-        </div>
-        {err ? (
-          <div className="err" role="alert">
-            {err}
           </div>
+        ) : (
+          <ChatThread
+            className="agent-log studio-log"
+            messages={messages}
+            busy={busy}
+            resetKey={courseId}
+          />
+        )}
+        {err ? (
+          <ChatError
+            message={err.message}
+            code={err.code}
+            onRetry={() => void send(lastText.current)}
+            onSettings={openSettings}
+          />
         ) : null}
 
         <div className="studio-dock">

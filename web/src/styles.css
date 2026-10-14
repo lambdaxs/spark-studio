@@ -88,30 +88,57 @@ textarea {
   height: 32px;
   border: 0;
   border-radius: 999px;
-  padding: 0 14px 0 34px;
+  padding: 0 52px 0 34px;
   background: var(--bg);
   color: inherit;
+}
+
+.search:disabled {
+  opacity: 0.55;
+}
+
+.search-clear {
+  position: absolute;
+  right: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 4px;
 }
 
 .topbar-meta {
   justify-self: end;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   font-size: 12px;
   color: var(--muted);
 }
 
-.topbar-meta button {
-  border: 0;
+.topbar-user {
+  padding: 0 4px;
+}
+
+.topbar-btn {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  padding: 0;
 }
 
-.topbar-meta button.active {
+.topbar-btn:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.topbar-btn.active {
   color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .workspace {
@@ -539,6 +566,118 @@ textarea {
   gap: 4px;
 }
 
+.crumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.crumb-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.crumb button,
+.pill-jump {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
+.platform-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.platform-marks span {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+
+.platform-marks span.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.variant-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0 0 16px;
+}
+
+.variant-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.reader-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reader-title-row h1 {
+  flex: 1;
+  min-width: 0;
+}
+
+.gen-status {
+  color: var(--accent);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.link-results {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.link-results button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+}
+
+.link-results button.active {
+  color: var(--accent);
+}
+
+.onward {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.onward-note {
+  color: #b45309;
+  font-size: 12px;
+}
+
 .markdown {
   font-size: 16px;
 }
@@ -748,6 +887,82 @@ textarea {
   color: var(--muted);
   padding: 24px 16px;
   font-size: 13px;
+  line-height: 1.5;
+}
+
+.empty-col p {
+  margin: 0 0 8px;
+}
+
+.empty-title {
+  color: var(--text);
+}
+
+.reader-status,
+.save-status {
+  min-height: 18px;
+}
+
+.reader-status {
+  display: flex;
+  justify-content: flex-end;
+  margin: -8px 0 8px;
+}
+
+.save-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.save-status.error {
+  color: #b45309;
+}
+
+.save-status button {
+  margin-left: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
+.err-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.artifact-note {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agent-empty {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 0;
+}
+
+.bubble.assistant.pending::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-left: 3px;
+  background: var(--text);
+  vertical-align: text-bottom;
+  animation: caret-blink 1s steps(2) infinite;
+}
+
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
 }
 
 .err {
@@ -1182,8 +1397,25 @@ textarea {
 .md-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 14px;
+}
+
+.md-modes,
+.md-formats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.md-formats {
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+
+.md-done {
+  margin-left: auto;
 }
 
 .md-toolbar button {
@@ -1394,6 +1626,8 @@ textarea {
 
 .link-add {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
   margin-top: 8px;
 }

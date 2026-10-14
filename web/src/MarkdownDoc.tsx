@@ -84,34 +84,31 @@ export function MarkdownDoc({
     <div className={`md-doc${quiet ? " quiet" : ""}`}>
       {editable && (!quiet || editing) ? (
         <div className="md-toolbar">
-          <button
-            type="button"
-            className={mode === "view" ? "active" : ""}
-            onClick={() => setMode("view")}
-          >
-            预览
-          </button>
-          <button
-            type="button"
-            className={mode === "source" ? "active" : ""}
-            onClick={() => setMode("source")}
-          >
-            编辑
-          </button>
-          <button
-            type="button"
-            className={mode === "split" ? "active" : ""}
-            onClick={() => setMode("split")}
-          >
-            对照
-          </button>
-          {editing
-            ? tools.map((t) => (
+          <div className="md-modes">
+            <button type="button" className={mode === "view" ? "active" : ""} onClick={() => setMode("view")}>
+              预览
+            </button>
+            <button type="button" className={mode === "source" ? "active" : ""} onClick={() => setMode("source")}>
+              编辑
+            </button>
+            <button type="button" className={mode === "split" ? "active" : ""} onClick={() => setMode("split")}>
+              对照
+            </button>
+          </div>
+          {editing ? (
+            <div className="md-formats">
+              {tools.map((t) => (
                 <button key={t.id} type="button" onClick={t.run}>
                   {t.label}
                 </button>
-              ))
-            : null}
+              ))}
+            </div>
+          ) : null}
+          {quiet && editing ? (
+            <button type="button" className="md-done" onClick={() => setMode("view")}>
+              完成
+            </button>
+          ) : null}
         </div>
       ) : null}
       {quiet && editable && mode === "view" ? (

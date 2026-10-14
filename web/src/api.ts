@@ -308,7 +308,13 @@ export const api = {
     if (query.ungrouped) q.set("ungrouped", "1");
     return fetch(`/api/todos?${q.toString()}`).then((r) => json<TodoRow[]>(r));
   },
-  createTodo: (input: { title: string; dueAt?: number | null; groups?: string[] }) =>
+  createTodo: (input: {
+    title: string;
+    body?: string;
+    dueAt?: number | null;
+    groups?: string[];
+    linkIds?: string[];
+  }) =>
     fetch("/api/todos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -426,7 +432,7 @@ export async function streamChat(
   message: string,
   onDelta: (text: string) => void,
   extra?: { surface?: string },
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; code?: string }> {
   const res = await fetch(`/api/items/${itemId}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -443,6 +449,7 @@ export async function streamChat(
   const decoder = new TextDecoder();
   let buffer = "";
   let error: string | undefined;
+  let code: string | undefined;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -463,6 +470,7 @@ export async function streamChat(
         onDelta(payload.text);
       } else if (event === "error") {
         const payload = JSON.parse(dataLine) as { code: string; detail: string };
+        code = payload.code;
         error =
           payload.code === "UNCONFIGURED_API_KEY"
             ? "未配置 Cursor API Key。打开左下角设置填入。"
@@ -470,7 +478,7 @@ export async function streamChat(
       }
     }
   }
-  return { error };
+  return { error, code };
 }
 
 export async function streamLesson(

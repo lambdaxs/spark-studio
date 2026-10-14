@@ -3,6 +3,7 @@ import { AgentPanel } from "./AgentPanel";
 import { IconBack } from "./Icons";
 import { LessonCanvas } from "./LessonCanvas";
 import { MarkdownView } from "./MarkdownDoc";
+import { SendOnward } from "./SendOnward";
 import { api, streamLesson, type CourseDetail, type CourseNode, type LessonDetail } from "./api";
 
 function firstLesson(nodes: CourseNode[]): CourseNode | undefined {
@@ -72,6 +73,8 @@ export function CourseReader({
   const [view, setView] = useState<"doc" | "canvas">("doc");
   const [generating, setGenerating] = useState(false);
   const [draftBody, setDraftBody] = useState("");
+  const [ask, setAsk] = useState("");
+  const [canvasAsk, setCanvasAsk] = useState(false);
 
   async function openNode(node: CourseNode, current?: CourseDetail) {
     const host = current ?? course;
@@ -157,9 +160,42 @@ export function CourseReader({
                 >
                   Canvas
                 </button>
+              ) : lesson ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAsk("给这一课补一个逐步演示，用 canvas 围栏写。");
+                    setCanvasAsk(true);
+                  }}
+                >
+                  让这一课补逐步演示
+                </button>
               ) : null}
             </div>
-            <h1>{lesson?.item.title ?? "生成这一课"}</h1>
+            {generating ? <div className="gen-status">正在写这一课，写完会留在这一页。</div> : null}
+            <div className="reader-title-row">
+              <h1>{lesson?.item.title ?? "生成这一课"}</h1>
+              {lesson && !generating ? (
+                <button
+                  type="button"
+                  className="chip"
+                  onClick={() =>
+                    void api
+                      .patchLesson(
+                        lesson.item.id,
+                        lesson.item.status === "done" ? "in_progress" : "done",
+                      )
+                      .then((next) => {
+                        setLesson(next);
+                        if (course) void api.course(course.item.id).then(setCourse);
+                        onProgress();
+                      })
+                  }
+                >
+                  {lesson.item.status === "done" ? "标为未完成" : "标为已完成"}
+                </button>
+              ) : null}
+            </div>
             {lesson ? (
               <div className="byline">
                 {[...lesson.item.ancestors.map((a) => a.title), lesson.item.title].join(" / ")}
@@ -168,31 +204,19 @@ export function CourseReader({
             ) : (
               <div className="byline">正在按课程背景生成，写完会固化。</div>
             )}
+            {lesson ? (
+              <SendOnward
+                title={lesson.item.title}
+                body={lesson.item.body}
+                sourceId={lesson.item.id}
+                actions={["wiki", "todo", "draft"]}
+              />
+            ) : null}
             {view === "canvas" && lesson?.canvas ? (
               <LessonCanvas spec={lesson.canvas} />
             ) : (
               <MarkdownView>{lesson?.item.body || draftBody}</MarkdownView>
             )}
-            {lesson && !generating ? (
-              <button
-                type="button"
-                className="chip"
-                onClick={() =>
-                  void api
-                    .patchLesson(
-                      lesson.item.id,
-                      lesson.item.status === "done" ? "in_progress" : "done",
-                    )
-                    .then((next) => {
-                      setLesson(next);
-                      if (course) void api.course(course.item.id).then(setCourse);
-                      onProgress();
-                    })
-                }
-              >
-                {lesson.item.status === "done" ? "标为未完成" : "标为已完成"}
-              </button>
-            ) : null}
           </div>
         ) : (
           <div className="empty-col">点目录里的课时。第一次点开会生成正文并保存。</div>
@@ -206,10 +230,14 @@ export function CourseReader({
             : "点开课时后，对话跟这一课走。"
         }
         placeholder="基于当前这一课提问…"
-        extra={{ surface: view }}
+        extra={{ surface: canvasAsk ? "canvas" : view }}
+        draftSeed={ask}
+        onDraftSeed={() => setAsk("")}
         onDone={() => {
+          setCanvasAsk(false);
           if (lesson) void api.lesson(lesson.item.id).then(setLesson);
           if (course) void api.course(course.item.id).then(setCourse);
+          onProgress();
         }}
       />
     </div>

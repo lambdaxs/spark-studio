@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AgentPanel } from "./AgentPanel";
+import { useAutosave } from "./autosave";
+import { formatLocalDate } from "./dates";
+import { SaveStatus, StatusBlock, failureDetail } from "./feedback";
 import { HoverDelete } from "./HoverDelete";
 import { MarkdownDoc } from "./MarkdownDoc";
 import { api, type ItemDetail, type ItemLink, type TodoRow } from "./api";
-import { matchesQuery, useQuery } from "./shell";
+import { matchesQuery, useQuery, useShell } from "./shell";
 
 type View = "open" | "today" | "all";
 
@@ -30,12 +33,12 @@ function formatDueLong(ms: number) {
 }
 
 function toDateInput(ms: number | null) {
-  if (!ms) return "";
-  return new Date(ms).toISOString().slice(0, 10);
+  return formatLocalDate(ms);
 }
 
 export function TodosPage() {
   const query = useQuery();
+  const { pending, consumePending, openItem } = useShell();
   const [view, setView] = useState<View>("open");
   const [counts, setCounts] = useState({ open: 0, today: 0, all: 0 });
   const [rows, setRows] = useState<TodoRow[]>([]);
@@ -49,14 +52,25 @@ export function TodosPage() {
   const [editingDue, setEditingDue] = useState(false);
   const [addingLink, setAddingLink] = useState(false);
   const [linkId, setLinkId] = useState("");
-  const [dirty, setDirty] = useState(false);
+  const [linkQuery, setLinkQuery] = useState("");
+  const [listLoaded, setListLoaded] = useState(false);
+  const [listError, setListError] = useState("");
   const composeRef = useRef<HTMLInputElement>(null);
 
   async function refreshList() {
-    const [list, nextCounts] = await Promise.all([api.todos({ view }), api.todoCounts()]);
-    setRows(list);
-    setCounts(nextCounts);
-    return list;
+    try {
+      const [list, nextCounts] = await Promise.all([api.todos({ view }), api.todoCounts()]);
+      setRows(list);
+      setCounts(nextCounts);
+      setListError("");
+      setListLoaded(true);
+      return list;
+    } catch (err) {
+      const detail = failureDetail(err);
+      if (detail) setListError(detail);
+      setListLoaded(true);
+      return [];
+    }
   }
 
   async function open(id: string) {
@@ -65,7 +79,6 @@ export function TodosPage() {
     setTitle(detail.title);
     setNote(detail.body);
     setDue(toDateInput(detail.dueAt));
-    setDirty(false);
     setEditingDue(false);
     setAddingLink(false);
     setLinkId("");
@@ -90,24 +103,25 @@ export function TodosPage() {
     if (first) void open(first.id);
   }, [rows, item]);
 
-  useEffect(() => {
-    if (!item || !dirty) return;
-    const handle = window.setTimeout(() => {
-      const dueAt = due ? new Date(`${due}T12:00:00`).getTime() : null;
-      void api
-        .patchTodo(item.id, { title, body: note, dueAt })
-        .then((next) => {
-          setItem(next);
-          setDirty(false);
-          void refreshList();
-        });
-    }, 450);
-    return () => window.clearTimeout(handle);
-  }, [title, note, due, dirty, item]);
+  const snapshot = JSON.stringify({ key: item?.id ?? "", title, note, due });
+  const saveState = useAutosave(item?.id, snapshot, async (raw) => {
+    const data = JSON.parse(raw) as { key: string; title: string; note: string; due: string };
+    if (!data.key) return;
+    const dueAt = data.due ? new Date(`${data.due}T12:00:00`).getTime() : null;
+    const next = await api.patchTodo(data.key, { title: data.title, body: data.note, dueAt });
+    setItem((cur) => (cur?.id === next.id ? next : cur));
+    void refreshList();
+  });
 
   useEffect(() => {
     if (composing) composeRef.current?.focus();
   }, [composing]);
+
+  useEffect(() => {
+    if (pending?.module !== "todos") return;
+    void open(pending.id);
+    consumePending();
+  }, [pending]);
 
   async function toggle(row: TodoRow) {
     const nextStatus = row.status === "done" ? "open" : "done";
@@ -145,6 +159,24 @@ export function TodosPage() {
   const otherLinks = item?.links.filter((l) => l.type !== "wiki") ?? [];
   const linkedIds = new Set(item?.links.map((l) => l.id));
   const unusedTargets = targets.filter((t) => !linkedIds.has(t.id));
+  const linkMatches = unusedTargets
+    .filter((t) => matchesQuery(linkQuery, t.title, t.type === "wiki" ? "Wiki" : "收藏"))
+    .slice(0, 8);
+
+  async function jump(link: ItemLink) {
+    if (link.type === "wiki") {
+      openItem({ module: "wiki", id: link.id });
+      return;
+    }
+    const detail = await api.item(link.id);
+    if (detail.type === "collection_item") {
+      openItem({ module: "collections", id: detail.id, collectionId: detail.collectionId });
+    } else if (detail.type === "draft") {
+      openItem({ module: "publish", id: detail.id });
+    } else if (detail.type === "course") {
+      openItem({ module: "courses", id: detail.id, courseView: "read" });
+    }
+  }
 
   return (
     <div className="todos">
@@ -158,6 +190,7 @@ export function TodosPage() {
               setView(v);
               setItem(undefined);
               setRows([]);
+              setListLoaded(false);
             }}
           >
             <span>{v === "open" ? "未完成" : v === "today" ? "今天" : "全部"}</span>
@@ -194,7 +227,23 @@ export function TodosPage() {
           </form>
         ) : null}
         {rows.filter((r) => matchesQuery(query, r.title)).length === 0 ? (
-          <div className="empty-col">没有待办。</div>
+          <StatusBlock
+            title={
+              !listLoaded ? "正在打开待办…" : listError ? "待办没有打开" : query.trim() ? "没有匹配的待办" : "没有待办"
+            }
+            detail={
+              !listLoaded
+                ? undefined
+                : listError
+                ? listError
+                : query.trim()
+                  ? "换个词，或清空顶栏搜索。"
+                  : view === "today"
+                    ? "今天没有到期的任务。可以新建一条，或切到未完成。"
+                    : "点「新建任务」写一条。"
+            }
+            action={listError ? { label: "重试", onClick: () => void refreshList() } : undefined}
+          />
         ) : (
           rows.filter((r) => matchesQuery(query, r.title)).map((r) => (
             <HoverDelete
@@ -220,16 +269,16 @@ export function TodosPage() {
       </section>
 
       <article className="col">
-        <div className="col-head">任务备注</div>
+        <div className="col-head split">
+          <span>任务备注</span>
+          <SaveStatus phase={saveState.phase} onRetry={saveState.retry} />
+        </div>
         {item ? (
           <div className="reader todo-note">
             <input
               className="title-input"
               value={title}
-              onChange={(e) => {
-                setTitle(e.target.value);
-                setDirty(true);
-              }}
+              onChange={(e) => setTitle(e.target.value)}
             />
             <div className="todo-meta">
               {editingDue ? (
@@ -239,10 +288,7 @@ export function TodosPage() {
                     type="date"
                     value={due}
                     autoFocus
-                    onChange={(e) => {
-                      setDue(e.target.value);
-                      setDirty(true);
-                    }}
+                    onChange={(e) => setDue(e.target.value)}
                     onBlur={() => setEditingDue(false)}
                   />
                 </label>
@@ -258,10 +304,7 @@ export function TodosPage() {
               quiet
               defaultMode="view"
               placeholder="点这里写备注"
-              onChange={(next) => {
-                setNote(next);
-                setDirty(true);
-              }}
+              onChange={setNote}
             />
             <div className="todo-links">
               {wikiLinks.length > 0 ? (
@@ -269,7 +312,9 @@ export function TodosPage() {
                   <span className="link-k">链接到 Wiki：</span>
                   {wikiLinks.map((l) => (
                     <span key={l.id} className="wiki-pill">
-                      {l.title}
+                      <button type="button" className="pill-jump" onClick={() => void jump(l)}>
+                        {l.title}
+                      </button>
                       <button
                         type="button"
                         aria-label="移除"
@@ -286,7 +331,9 @@ export function TodosPage() {
                   <span className="link-k">链接到收藏：</span>
                   {otherLinks.map((l) => (
                     <span key={l.id} className="wiki-pill">
-                      {l.title}
+                      <button type="button" className="pill-jump" onClick={() => void jump(l)}>
+                        {l.title}
+                      </button>
                       <button
                         type="button"
                         aria-label="移除"
@@ -307,18 +354,41 @@ export function TodosPage() {
                     void api.addLink(item.id, linkId).then((next) => {
                       setItem(next);
                       setLinkId("");
+                      setLinkQuery("");
                       setAddingLink(false);
                     });
                   }}
                 >
-                  <select value={linkId} onChange={(e) => setLinkId(e.target.value)}>
-                    <option value="">链到 Wiki 或收藏…</option>
-                    {unusedTargets.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.type === "wiki" ? "Wiki" : "收藏"} · {t.title}
-                      </option>
-                    ))}
-                  </select>
+                  <input
+                    value={linkQuery}
+                    onChange={(e) => {
+                      setLinkQuery(e.target.value);
+                      setLinkId("");
+                    }}
+                    placeholder="搜索 Wiki 或收藏"
+                    autoFocus
+                  />
+                  {linkQuery.trim() ? (
+                    <div className="link-results">
+                      {linkMatches.length === 0 ? (
+                        <span className="meta">没有匹配</span>
+                      ) : (
+                        linkMatches.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            className={linkId === t.id ? "active" : ""}
+                            onClick={() => {
+                              setLinkId(t.id);
+                              setLinkQuery(t.title);
+                            }}
+                          >
+                            {t.type === "wiki" ? "Wiki" : "收藏"} · {t.title}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  ) : null}
                   <button type="submit" className="chip" disabled={!linkId}>
                     添加
                   </button>
@@ -334,7 +404,7 @@ export function TodosPage() {
             </div>
           </div>
         ) : (
-          <div className="empty-col">选择一条待办。</div>
+          <StatusBlock title="选择一条待办" detail="在中间列表点开，备注和对话会跟这一条走。" />
         )}
       </article>
 

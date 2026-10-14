@@ -1,7 +1,7 @@
 import { Agent, CursorAgentError } from "@cursor/sdk";
 import { workspaceRoot } from "./db.js";
+import { applyItemArtifacts } from "./item-artifacts.js";
 import {
-  applyChatArtifacts,
   boundMaterialText,
   coursePromptContext,
   defaultCanvasFor,
@@ -121,7 +121,22 @@ ${item.body || "（尚未生成）"}`;
 正文：
 ${item.body}`;
   }
+  const saveRules =
+    item.type === "course" || item.type === "course_node"
+      ? ""
+      : `
+只有用户明确要求写入时，才在回复末尾附一个 JSON 围栏，不要把 JSON 再讲一遍。
+新 Wiki：\`\`\`save-wiki
+{"title":"标题","body":"Markdown"}
+\`\`\`
+新待办用 save-todo，新底稿用 save-draft，字段同样是 title 和 body。
+改当前这一条用 \`\`\`rewrite
+{"title":"标题","body":"Markdown"}
+\`\`\`
+收藏原文不要 rewrite。没有要求落库时不要附这些围栏。`;
+
   return `${header}
+${saveRules}
 
 用户：
 ${userText}`;
@@ -212,7 +227,7 @@ export async function streamItemChat(
   const text = assembled.trim();
   if (text) {
     addMessage(conv.id, "assistant", text);
-    applyChatArtifacts(itemId, text);
+    applyItemArtifacts(itemId, text, extra?.surface);
   }
   return text;
 }

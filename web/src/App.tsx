@@ -9,7 +9,7 @@ import { SettingsPage } from "./SettingsPage";
 import { LoginPage } from "./LoginPage";
 import { IconCap, IconCheck, IconGear, IconPen, IconSearch, IconStar, IconWiki } from "./Icons";
 import { api, type AuthMe } from "./api";
-import { ShellContext } from "./shell";
+import { ShellContext, type OpenTarget } from "./shell";
 
 const modules = [
   { id: "collections", label: "收藏", Icon: IconStar },
@@ -27,6 +27,7 @@ function Workbench({ user, onLogout }: { user: string; onLogout: () => void }) {
   const [query, setQuery] = useState("");
   const [trashOpen, setTrashOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pending, setPending] = useState<OpenTarget | null>(null);
 
   function openModule(id: ModuleId) {
     setSeen((prev) => {
@@ -40,8 +41,24 @@ function Workbench({ user, onLogout }: { user: string; onLogout: () => void }) {
     setMod(id);
   }
 
+  function openItem(target: OpenTarget) {
+    openModule(target.module);
+    setPending(target);
+  }
+
   return (
-    <ShellContext.Provider value={{ query }}>
+    <ShellContext.Provider
+      value={{
+        query,
+        openSettings: () => {
+          setTrashOpen(false);
+          setSettingsOpen(true);
+        },
+        pending,
+        openItem,
+        consumePending: () => setPending(null),
+      }}
+    >
       <div className="app">
         <header className="topbar">
           <div className="brand">个人知识工作台</div>
@@ -51,14 +68,24 @@ function Workbench({ user, onLogout }: { user: string; onLogout: () => void }) {
               className="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索当前列表"
-              aria-label="搜索当前列表"
+              placeholder={
+                settingsOpen ? "设置里不能搜索" : trashOpen ? "搜索回收站" : `搜索${modules.find((m) => m.id === mod)?.label}`
+              }
+              aria-label={
+                settingsOpen ? "设置里不能搜索" : trashOpen ? "搜索回收站" : `搜索${modules.find((m) => m.id === mod)?.label}`
+              }
+              disabled={settingsOpen}
             />
+            {query && !settingsOpen ? (
+              <button type="button" className="search-clear" onClick={() => setQuery("")}>
+                清空
+              </button>
+            ) : null}
           </label>
           <div className="topbar-meta">
             <button
               type="button"
-              className={trashOpen ? "active" : ""}
+              className={`topbar-btn${trashOpen ? " active" : ""}`}
               onClick={() => {
                 setSettingsOpen(false);
                 setTrashOpen((v) => !v);
@@ -66,8 +93,8 @@ function Workbench({ user, onLogout }: { user: string; onLogout: () => void }) {
             >
               回收站
             </button>
-            <span>{user}</span>
-            <button type="button" onClick={() => void onLogout()}>
+            <span className="topbar-user">{user}</span>
+            <button type="button" className="topbar-btn" onClick={() => void onLogout()}>
               退出
             </button>
           </div>
@@ -146,7 +173,13 @@ export function App() {
     setAuth({ authenticated: false, setupRequired: false, username: null });
   }
 
-  if (!auth) return <div className="login" />;
+  if (!auth) {
+    return (
+      <div className="login">
+        <p className="login-lead">正在打开工作台…</p>
+      </div>
+    );
+  }
   if (!auth.authenticated) {
     return <LoginPage setupRequired={auth.setupRequired} onAuthed={setAuth} />;
   }

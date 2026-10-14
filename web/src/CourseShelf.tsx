@@ -1,4 +1,5 @@
 import { HoverDelete } from "./HoverDelete";
+import { StatusBlock } from "./feedback";
 import { IconPlus } from "./Icons";
 import type { CourseRow } from "./api";
 
@@ -11,15 +12,23 @@ function tone(id: string) {
 export function CourseShelf({
   books,
   loaded,
+  error,
   onOpen,
   onWrite,
   onDelete,
+  onRetry,
+  emptyTitle,
+  emptyDetail,
 }: {
   books: CourseRow[];
   loaded?: boolean;
+  error?: string;
   onOpen: (id: string) => void;
   onWrite: () => void;
   onDelete: (id: string) => void;
+  onRetry: () => void;
+  emptyTitle?: string;
+  emptyDetail?: string;
 }) {
   return (
     <div className="shelf">
@@ -31,15 +40,18 @@ export function CourseShelf({
         </button>
       </div>
       {!loaded ? (
-        <div className="shelf-empty">
-          <p>正在打开书架…</p>
-        </div>
+        <StatusBlock title="正在打开书架…" />
+      ) : error ? (
+        <StatusBlock title="书架没有打开" detail={error} action={{ label: "重试", onClick: onRetry }} />
       ) : books.length === 0 ? (
         <div className="shelf-empty">
-          <p>还没有书。</p>
-          <button type="button" className="primary-btn" onClick={onWrite}>
-            写一本新书
-          </button>
+          <p>{emptyTitle ?? "还没有书。"}</p>
+          {emptyDetail ? <p>{emptyDetail}</p> : null}
+          {emptyTitle ? null : (
+            <button type="button" className="primary-btn" onClick={onWrite}>
+              写一本新书
+            </button>
+          )}
         </div>
       ) : (
         <div className="shelf-grid">
