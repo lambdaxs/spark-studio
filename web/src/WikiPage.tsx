@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AgentPanel } from "./AgentPanel";
 import { IconPlus } from "./Icons";
 import { MarkdownDoc } from "./MarkdownDoc";
+import { SearchBox } from "./SearchBox";
 import { WikiTree } from "./WikiTree";
 import { api, type ItemDetail, type WikiNode } from "./api";
 import { matchesQuery, useQuery } from "./shell";
@@ -109,16 +110,20 @@ export function WikiPage() {
   return (
     <div className="wiki">
       <aside className="col wiki-nav">
-        <div className="col-head split">
-          <span>页面树</span>
-          <button
-            type="button"
-            className="icon-btn"
-            aria-label="新建页面"
-            onClick={() => void create(false)}
-          >
-            <IconPlus />
-          </button>
+        <div className="col-head stack">
+          <div className="col-title split">
+            <span>Wiki</span>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="新建页面"
+              title="新建页面"
+              onClick={() => void create(false)}
+            >
+              <IconPlus />
+            </button>
+          </div>
+          <SearchBox placeholder="搜索页面…" />
         </div>
         <WikiTree
           nodes={filterWiki(tree, query)}
@@ -140,8 +145,12 @@ export function WikiPage() {
 
       <article className="col">
         {page ? (
+          <div className="col-bar">
+            <span className="crumb">{crumb}</span>
+          </div>
+        ) : null}
+        {page ? (
           <div className="reader wiki-editor">
-            <div className="byline">{crumb}</div>
             <input
               className="title-input"
               value={title}
@@ -168,7 +177,7 @@ export function WikiPage() {
 
       <AgentPanel
         itemId={page?.id}
-        context={page ? `当前 Wiki「${crumb}」` : "选择一页后，对话会跟这一页走。"}
+        context={page ? `当前页「${page.title}」· ${crumb}` : "选择一页后，对话会跟这一页走。"}
         placeholder="基于当前这页提问…"
       />
     </div>

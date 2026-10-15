@@ -3,6 +3,7 @@ import { AgentPanel } from "./AgentPanel";
 import { HoverDelete } from "./HoverDelete";
 import { IconFolder, IconLink } from "./Icons";
 import { MarkdownView } from "./MarkdownDoc";
+import { SearchBox } from "./SearchBox";
 import { api, type Collection, type ItemDetail, type ItemSummary } from "./api";
 import { matchesQuery, useQuery } from "./shell";
 
@@ -19,6 +20,7 @@ export function CollectionsPage() {
   const [item, setItem] = useState<ItemDetail>();
 
   const selectedCollection = collections.find((c) => c.id === collectionId);
+  const visible = rows.filter((r) => matchesQuery(query, r.title, r.author));
 
   async function refreshMeta() {
     const cols = await api.collections();
@@ -67,7 +69,9 @@ export function CollectionsPage() {
   return (
     <div className="collections">
       <aside className="col">
-        <div className="col-head">收藏夹</div>
+        <div className="col-head">
+          <div className="col-title">收藏夹</div>
+        </div>
         {collections.map((c) => (
           <button
             key={c.id}
@@ -88,11 +92,17 @@ export function CollectionsPage() {
       </aside>
 
       <section className="col">
-        <div className="col-head">{selectedCollection?.name ?? "文章"}</div>
-        {rows.filter((r) => matchesQuery(query, r.title, r.author)).length === 0 ? (
-          <div className="empty-col">这个夹里没有文章。</div>
+        <div className="col-head stack">
+          <div className="col-title">
+            {selectedCollection?.name ?? "文章"}
+            <span className="col-count">{visible.length}</span>
+          </div>
+          <SearchBox placeholder="搜索标题或作者…" />
+        </div>
+        {visible.length === 0 ? (
+          <div className="empty-col">{query.trim() ? "没有匹配的文章。" : "这个夹里没有文章。"}</div>
         ) : (
-          rows.filter((r) => matchesQuery(query, r.title, r.author)).map((r) => (
+          visible.map((r) => (
             <HoverDelete key={r.id} onDelete={() => void remove(r.id)}>
               <button
                 className={`row ${item?.id === r.id ? "active" : ""}`}

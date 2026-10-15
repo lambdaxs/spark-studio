@@ -7,7 +7,17 @@ import { CoursesPage } from "./CoursesPage";
 import { TrashPage } from "./TrashPage";
 import { SettingsPage } from "./SettingsPage";
 import { LoginPage } from "./LoginPage";
-import { IconCap, IconCheck, IconGear, IconPen, IconSearch, IconStar, IconWiki } from "./Icons";
+import {
+  IconCap,
+  IconCheck,
+  IconGear,
+  IconLogo,
+  IconLogout,
+  IconPen,
+  IconStar,
+  IconTrash,
+  IconWiki,
+} from "./Icons";
 import { api, type AuthMe } from "./api";
 import { ShellContext } from "./shell";
 
@@ -20,13 +30,13 @@ const modules = [
 ] as const;
 
 type ModuleId = (typeof modules)[number]["id"];
+type Overlay = "trash" | "settings" | null;
 
 function Workbench({ user, onLogout }: { user: string; onLogout: () => void }) {
   const [mod, setMod] = useState<ModuleId>("collections");
   const [seen, setSeen] = useState<ReadonlySet<ModuleId>>(() => new Set(["collections"]));
   const [query, setQuery] = useState("");
-  const [trashOpen, setTrashOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [overlay, setOverlay] = useState<Overlay>(null);
 
   function openModule(id: ModuleId) {
     setSeen((prev) => {
@@ -35,94 +45,89 @@ function Workbench({ user, onLogout }: { user: string; onLogout: () => void }) {
       next.add(id);
       return next;
     });
-    setTrashOpen(false);
-    setSettingsOpen(false);
+    setOverlay(null);
+    if (id !== mod) setQuery("");
     setMod(id);
   }
 
+  function toggleOverlay(next: Exclude<Overlay, null>) {
+    setQuery("");
+    setOverlay((cur) => (cur === next ? null : next));
+  }
+
   return (
-    <ShellContext.Provider value={{ query }}>
+    <ShellContext.Provider value={{ query, setQuery }}>
       <div className="app">
-        <header className="topbar">
-          <div className="brand">个人知识工作台</div>
-          <label className="search-wrap">
-            <IconSearch />
-            <input
-              className="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索当前列表"
-              aria-label="搜索当前列表"
-            />
-          </label>
-          <div className="topbar-meta">
-            <button
-              type="button"
-              className={trashOpen ? "active" : ""}
-              onClick={() => {
-                setSettingsOpen(false);
-                setTrashOpen((v) => !v);
-              }}
-            >
-              回收站
-            </button>
-            <span>{user}</span>
-            <button type="button" onClick={() => void onLogout()}>
-              退出
-            </button>
-          </div>
-        </header>
         <nav className="rail">
+          <div className="brand">
+            <IconLogo />
+            <span>个人知识工作台</span>
+          </div>
           {modules.map((m) => (
             <button
               key={m.id}
-              className={mod === m.id && !settingsOpen ? "active" : ""}
+              type="button"
+              className={`rail-item${mod === m.id && !overlay ? " active" : ""}`}
               onClick={() => openModule(m.id)}
             >
               <m.Icon />
               <span>{m.label}</span>
             </button>
           ))}
-          <button
-            type="button"
-            className={`rail-settings${settingsOpen ? " active" : ""}`}
-            onClick={() => {
-              setTrashOpen(false);
-              setSettingsOpen((v) => !v);
-            }}
-          >
-            <IconGear />
-            <span>设置</span>
-          </button>
+          <div className="rail-foot">
+            <button
+              type="button"
+              className={`rail-item${overlay === "trash" ? " active" : ""}`}
+              onClick={() => toggleOverlay("trash")}
+            >
+              <IconTrash />
+              <span>回收站</span>
+            </button>
+            <button
+              type="button"
+              className={`rail-item${overlay === "settings" ? " active" : ""}`}
+              onClick={() => toggleOverlay("settings")}
+            >
+              <IconGear />
+              <span>设置</span>
+            </button>
+            <div className="rail-user">
+              <span className="rail-avatar">{user.slice(0, 1).toUpperCase()}</span>
+              <span className="rail-name">{user}</span>
+              <button type="button" className="icon-btn" aria-label="退出登录" title="退出登录" onClick={onLogout}>
+                <IconLogout />
+              </button>
+            </div>
+          </div>
         </nav>
         <main className="workspace">
           {seen.has("collections") ? (
-            <div className="workspace-pane" hidden={trashOpen || settingsOpen || mod !== "collections"}>
+            <div className="workspace-pane" hidden={Boolean(overlay) || mod !== "collections"}>
               <CollectionsPage />
             </div>
           ) : null}
           {seen.has("wiki") ? (
-            <div className="workspace-pane" hidden={trashOpen || settingsOpen || mod !== "wiki"}>
+            <div className="workspace-pane" hidden={Boolean(overlay) || mod !== "wiki"}>
               <WikiPage />
             </div>
           ) : null}
           {seen.has("todos") ? (
-            <div className="workspace-pane" hidden={trashOpen || settingsOpen || mod !== "todos"}>
+            <div className="workspace-pane" hidden={Boolean(overlay) || mod !== "todos"}>
               <TodosPage />
             </div>
           ) : null}
           {seen.has("courses") ? (
-            <div className="workspace-pane" hidden={trashOpen || settingsOpen || mod !== "courses"}>
+            <div className="workspace-pane" hidden={Boolean(overlay) || mod !== "courses"}>
               <CoursesPage />
             </div>
           ) : null}
           {seen.has("publish") ? (
-            <div className="workspace-pane" hidden={trashOpen || settingsOpen || mod !== "publish"}>
+            <div className="workspace-pane" hidden={Boolean(overlay) || mod !== "publish"}>
               <PublishPage />
             </div>
           ) : null}
-          {settingsOpen ? <SettingsPage username={user} /> : null}
-          {trashOpen ? <TrashPage /> : null}
+          {overlay === "settings" ? <SettingsPage username={user} /> : null}
+          {overlay === "trash" ? <TrashPage /> : null}
         </main>
       </div>
     </ShellContext.Provider>

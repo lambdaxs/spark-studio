@@ -1,80 +1,136 @@
 import type { CourseNode } from "./api";
 
-type Box = { id: string; title: string; x: number; y: number };
+type Box = { id: string; label: string; x: number; y: number; w: number; depth: number };
 type Edge = { x1: number; y1: number; x2: number; y2: number };
 
-const W = 132;
-const H = 28;
-const DX = 156;
+const H = 30;
 const DY = 42;
+const GAP = 36;
+const COL = 136;
+const MAX_CHARS = 10;
 
-function layout(
-  nodes: CourseNode[],
-  depth: number,
-  startY: number,
-): { boxes: Box[]; edges: Edge[]; height: number } {
-  let y = startY;
-  const boxes: Box[] = [];
-  const edges: Edge[] = [];
-  for (const node of nodes) {
-    if (node.children.length === 0) {
-      boxes.push({ id: node.id, title: node.title, x: depth * DX, y });
-      y += DY;
-      continue;
-    }
-    const child = layout(node.children, depth + 1, y);
-    const top = Math.min(...child.boxes.map((b) => b.y));
-    const bot = Math.max(...child.boxes.map((b) => b.y));
-    const ny = (top + bot) / 2;
-    boxes.push({ id: node.id, title: node.title, x: depth * DX, y: ny });
-    for (const c of node.children) {
-      const cb = child.boxes.find((b) => b.id === c.id);
-      if (cb) {
-        edges.push({
-          x1: depth * DX + W,
-          y1: ny + H / 2,
-          x2: cb.x,
-          y2: cb.y + H / 2,
-        });
-      }
-    }
-    boxes.push(...child.boxes);
-    edges.push(...child.edges);
-    y += child.height;
-  }
-  return { boxes, edges, height: Math.max(DY, y - startY) };
+function label(title: string) {
+  return title.length > MAX_CHARS ? `${title.slice(0, MAX_CHARS)}…` : title;
 }
 
-export function CourseMindMap({ tree }: { tree: CourseNode[] }) {
-  if (tree.length === 0) {
-    return <div className="empty-col">大纲还是空的。对话里拆完再出树，或点「生成建议大纲」。</div>;
+function textWidth(text: string, size: number) {
+  let w = 0;
+  for (const ch of text) w += ch.charCodeAt(0) > 255 ? size : size * 0.58;
+  return w;
+}
+
+function nodeWidth(text: string, depth: number) {
+  return Math.min(COL, Math.max(64, textWidth(text, depth <= 1 ? 13 : 12) + 28));
+}
+
+function layoutSide(nodes: CourseNode[], dir: 1 | -1) {
+  const boxes: Box[] = [];
+  const edges: Edge[] = [];
+  let cursor = 0;
+
+  function place(node: CourseNode, depth: number): Box {
+    const text = label(node.title);
+    const w = nodeWidth(text, depth);
+    const inner = (depth - 1) * (COL + GAP);
+    let y: number;
+    const kids = node.children.map((c) => place(c, depth + 1));
+    if (kids.length === 0) {
+      y = cursor;
+      cursor += DY;
+    } else {
+      y = (kids[0].y + kids[kids.length - 1].y) / 2;
+    }
+    const box: Box = { id: node.id, label: text, x: dir === 1 ? inner : -inner - w, y, w, depth };
+    for (const k of kids) {
+      edges.push({
+        x1: dir === 1 ? box.x + box.w : box.x,
+        y1: y + H / 2,
+        x2: dir === 1 ? k.x : k.x + k.w,
+        y2: k.y + H / 2,
+      });
+    }
+    boxes.push(box);
+    return box;
   }
-  const { boxes, edges } = layout(tree, 0, 8);
-  const width = Math.max(...boxes.map((b) => b.x), 0) + W + 16;
-  const height = Math.max(...boxes.map((b) => b.y), 0) + H + 16;
+
+  const tops = nodes.map((n) => place(n, 1));
+  return { boxes, edges, tops, height: Math.max(cursor - (DY - H), H) };
+}
+
+function curve(e: Edge) {
+  const mx = (e.x1 + e.x2) / 2;
+  return `M${e.x1},${e.y1} C${mx},${e.y1} ${mx},${e.y2} ${e.x2},${e.y2}`;
+}
+
+export function CourseMindMap({ title, tree }: { title: string; tree: CourseNode[] }) {
+  if (tree.length === 0) {
+    return <div className="empty-col">大纲还是空的。</div>;
+  }
+  const splitAt = tree.length === 1 ? 1 : Math.ceil(tree.length / 2);
+  const right = layoutSide(tree.slice(0, splitAt), 1);
+  const left = layoutSide(tree.slice(splitAt), -1);
+
+  const rootLabel = label(title || "课程");
+  const rootW = Math.max(96, textWidth(rootLabel, 15) + 36);
+  const rootH = 40;
+  const height = Math.max(right.height, left.height, rootH) + 24;
+  const midY = height / 2;
+
+  const shift = (side: ReturnType<typeof layoutSide>) => midY - side.height / 2;
+  const rShift = shift(right);
+  const lShift = shift(left);
+  const rx = rootW / 2 + GAP;
+
+  const all: Box[] = [
+    ...right.boxes.map((b) => ({ ...b, x: b.x + rx, y: b.y + rShift })),
+    ...left.boxes.map((b) => ({ ...b, x: b.x - rx, y: b.y + lShift })),
+  ];
+  const edges: Edge[] = [
+    ...right.edges.map((e) => ({ x1: e.x1 + rx, y1: e.y1 + rShift, x2: e.x2 + rx, y2: e.y2 + rShift })),
+    ...left.edges.map((e) => ({ x1: e.x1 - rx, y1: e.y1 + lShift, x2: e.x2 - rx, y2: e.y2 + lShift })),
+    ...right.tops.map((t) => ({ x1: rootW / 2, y1: midY, x2: t.x + rx, y2: t.y + rShift + H / 2 })),
+    ...left.tops.map((t) => ({ x1: -rootW / 2, y1: midY, x2: t.x + t.w - rx, y2: t.y + lShift + H / 2 })),
+  ];
+
+  const minX = Math.min(-rootW / 2, ...all.map((b) => b.x)) - 8;
+  const maxX = Math.max(rootW / 2, ...all.map((b) => b.x + b.w)) + 8;
+  const width = maxX - minX;
+
   return (
-    <svg className="mindmap" width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+    <svg
+      className="mindmap"
+      width={width}
+      height={height}
+      viewBox={`${minX} 0 ${width} ${height}`}
+      role="img"
+      aria-label={`${title} 思维导图`}
+    >
       {edges.map((e, i) => (
-        <line key={i} x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="#e6e2da" strokeWidth="1" />
+        <path key={i} d={curve(e)} fill="none" stroke="#bfd3f2" strokeWidth="1.4" />
       ))}
-      {boxes.map((b) => (
+      <rect x={-rootW / 2} y={midY - rootH / 2} width={rootW} height={rootH} rx="10" fill="#2563eb" />
+      <text x={0} y={midY + 5} fontSize="15" fontWeight="600" fill="#fff" textAnchor="middle">
+        {rootLabel}
+      </text>
+      {all.map((b) => (
         <g key={b.id}>
           <rect
             x={b.x}
             y={b.y}
-            width={W}
+            width={b.w}
             height={H}
-            rx="6"
-            fill="#fff"
-            stroke="#e6e2da"
+            rx="8"
+            fill={b.depth === 1 ? "#eff6ff" : "#fff"}
+            stroke={b.depth === 1 ? "#bfdbfe" : "#dbe3ef"}
           />
           <text
-            x={b.x + 8}
-            y={b.y + 18}
-            fontSize="11"
-            fill="#1c1917"
+            x={b.x + b.w / 2}
+            y={b.y + 19}
+            fontSize={b.depth === 1 ? 13 : 12}
+            fill={b.depth === 1 ? "#1e3a8a" : "#1c1917"}
+            textAnchor="middle"
           >
-            {b.title.length > 10 ? `${b.title.slice(0, 10)}…` : b.title}
+            {b.label}
           </text>
         </g>
       ))}

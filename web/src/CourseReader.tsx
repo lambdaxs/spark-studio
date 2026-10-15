@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AgentPanel } from "./AgentPanel";
-import { IconBack } from "./Icons";
+import { IconBack, IconCircle } from "./Icons";
 import { LessonCanvas } from "./LessonCanvas";
 import { MarkdownView } from "./MarkdownDoc";
 import { api, streamLesson, type CourseDetail, type CourseNode, type LessonDetail } from "./api";
@@ -21,34 +21,52 @@ function findLesson(nodes: CourseNode[], pred: (n: CourseNode) => boolean): Cour
   }
 }
 
+function countLessons(nodes: CourseNode[]): { total: number; done: number } {
+  return nodes.reduce(
+    (acc, n) => {
+      const sub = countLessons(n.children);
+      const isLesson = n.contentKind === "lesson";
+      return {
+        total: acc.total + sub.total + (isLesson ? 1 : 0),
+        done: acc.done + sub.done + (isLesson && n.status === "done" ? 1 : 0),
+      };
+    },
+    { total: 0, done: 0 },
+  );
+}
+
 function TreeButtons({
   nodes,
   selectedId,
   onSelect,
+  depth = 0,
 }: {
   nodes: CourseNode[];
   selectedId?: string;
   onSelect: (n: CourseNode) => void;
+  depth?: number;
 }) {
   return (
     <>
       {nodes.map((n) => {
-        const muted = n.contentKind === "lesson" && n.status === "not_started" && !n.hasBody;
-        const mark = n.contentKind === "lesson" && n.status === "done" ? " ✓" : "";
+        const lesson = n.contentKind === "lesson";
+        const state = n.status === "done" ? "done" : n.status === "in_progress" ? "current" : "todo";
+        const untouched = lesson && state === "todo" && !n.hasBody;
         return (
           <div key={n.id}>
             <button
               type="button"
-              className={`tree-item ${n.id === selectedId ? "active" : ""} ${muted ? "muted" : ""}`}
+              className={`lesson-item${lesson ? "" : " chapter"}${n.id === selectedId ? " active" : ""}${untouched ? " muted" : ""}`}
+              style={{ paddingLeft: 14 + depth * 16 }}
               onClick={() => onSelect(n)}
             >
-              {n.title}
-              {mark}
+              {lesson ? <IconCircle state={n.id === selectedId && state === "todo" ? "current" : state} /> : null}
+              <span className="lesson-name">{n.title}</span>
+              {lesson && state === "current" ? <span className="badge accent">进行中</span> : null}
+              {untouched && n.id !== selectedId ? <span className="badge">未开始</span> : null}
             </button>
             {n.children.length > 0 ? (
-              <div className="tree-branch">
-                <TreeButtons nodes={n.children} selectedId={selectedId} onSelect={onSelect} />
-              </div>
+              <TreeButtons nodes={n.children} selectedId={selectedId} onSelect={onSelect} depth={depth + 1} />
             ) : null}
           </div>
         );
@@ -115,22 +133,43 @@ export function CourseReader({
     });
   }, [courseId]);
 
+  const progress = course ? countLessons(course.tree) : { total: 0, done: 0 };
+  const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
+
   return (
     <div className="courses learn">
       <aside className="col">
-        <div className="col-head split">
-          <button type="button" className="text-btn back-btn" onClick={onBack}>
-            <IconBack />
-            返回书架
-          </button>
+        <div className="col-head">
+          <div className="col-title split">
+            <span>课程目录</span>
+            <button type="button" className="text-btn back-btn" onClick={onBack}>
+              <IconBack />
+              书架
+            </button>
+          </div>
         </div>
-        <div className="col-head">{course?.item.title ?? "目录"}</div>
         {course ? (
-          <TreeButtons
-            nodes={course.tree}
-            selectedId={lesson?.item.id ?? chapter?.id}
-            onSelect={(n) => void openNode(n)}
-          />
+          <div className="course-progress">
+            <div className="course-progress-head">
+              <span className="course-progress-title">{course.item.title}</span>
+              <span className="course-progress-num">
+                {progress.done}/{progress.total}
+                <span>{pct}%</span>
+              </span>
+            </div>
+            <span className="book-bar">
+              <span style={{ width: `${pct}%` }} />
+            </span>
+          </div>
+        ) : null}
+        {course ? (
+          <div className="lesson-tree">
+            <TreeButtons
+              nodes={course.tree}
+              selectedId={lesson?.item.id ?? chapter?.id}
+              onSelect={(n) => void openNode(n)}
+            />
+          </div>
         ) : null}
       </aside>
       <article className="col">
@@ -141,7 +180,7 @@ export function CourseReader({
           </div>
         ) : lesson || generating ? (
           <div className="reader">
-            <div className="filters">
+            <div className="seg lesson-seg">
               <button
                 type="button"
                 className={view === "doc" ? "active" : ""}
@@ -149,15 +188,14 @@ export function CourseReader({
               >
                 文档
               </button>
-              {lesson?.canvas ? (
-                <button
-                  type="button"
-                  className={view === "canvas" ? "active" : ""}
-                  onClick={() => setView("canvas")}
-                >
-                  Canvas
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className={view === "canvas" ? "active" : ""}
+                disabled={!lesson}
+                onClick={() => setView("canvas")}
+              >
+                Canvas
+              </button>
             </div>
             <h1>{lesson?.item.title ?? "生成这一课"}</h1>
             {lesson ? (
@@ -170,6 +208,10 @@ export function CourseReader({
             )}
             {view === "canvas" && lesson?.canvas ? (
               <LessonCanvas spec={lesson.canvas} />
+            ) : view === "canvas" ? (
+              <div className="canvas-empty">
+                这一课还没有 Canvas。在右侧让 Agent「给这一课补一个逐步动画 canvas」，生成后会固化在这里。
+              </div>
             ) : (
               <MarkdownView>{lesson?.item.body || draftBody}</MarkdownView>
             )}
@@ -202,7 +244,7 @@ export function CourseReader({
         itemId={lesson?.item.id}
         context={
           lesson
-            ? `课程「${course?.item.title ?? ""}」· 当前课时「${lesson.item.title}」`
+            ? `当前课程：${course?.item.title ?? ""} · 当前课时：${lesson.item.title}`
             : "点开课时后，对话跟这一课走。"
         }
         placeholder="基于当前这一课提问…"

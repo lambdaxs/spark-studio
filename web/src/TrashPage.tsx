@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type TrashRow } from "./api";
+import { SearchBox } from "./SearchBox";
 import { matchesQuery, useQuery } from "./shell";
 
 function formatWhen(ms: number) {
@@ -24,7 +25,10 @@ export function TrashPage() {
   return (
     <div className="trash">
       <section className="col">
-        <div className="col-head">回收站</div>
+        <div className="col-head stack">
+          <div className="col-title">回收站</div>
+          <SearchBox placeholder="搜索已删除的条目…" />
+        </div>
         {visible.length === 0 ? (
           <div className="empty-col">回收站是空的。列表里悬停 1 秒后可以删除，条目会到这里。</div>
         ) : (

@@ -685,6 +685,7 @@ const mime: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
+  ".webmanifest": "application/manifest+json",
 };
 
 app.get("*", (c) => {

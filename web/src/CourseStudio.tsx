@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
+import { ChatBubble } from "./AgentPanel";
 import { CourseMindMap } from "./CourseMindMap";
 import { HoverDelete } from "./HoverDelete";
-import { IconBack, IconClip, IconHistory, IconPlus, IconSend } from "./Icons";
-import { MarkdownView } from "./MarkdownDoc";
+import { IconBack, IconClip, IconHistory, IconPage, IconPlus, IconSend } from "./Icons";
 import {
   api,
   streamChat,
@@ -20,15 +20,21 @@ function lessonCount(nodes: CourseNode[]): number {
   );
 }
 
-function OutlineList({ nodes, depth = 0 }: { nodes: CourseNode[]; depth?: number }) {
+function OutlineList({ nodes, prefix = "" }: { nodes: CourseNode[]; prefix?: string }) {
   return (
-    <ol className="outline-list" style={{ paddingLeft: depth === 0 ? 18 : 16 }}>
-      {nodes.map((n) => (
-        <li key={n.id}>
-          {n.title}
-          {n.children.length > 0 ? <OutlineList nodes={n.children} depth={depth + 1} /> : null}
-        </li>
-      ))}
+    <ol className={`outline-list${prefix ? " nested" : ""}`}>
+      {nodes.map((n, i) => {
+        const num = `${prefix}${i + 1}`;
+        return (
+          <li key={n.id}>
+            <span className="outline-row">
+              <span className="outline-num">{num}</span>
+              {n.title}
+            </span>
+            {n.children.length > 0 ? <OutlineList nodes={n.children} prefix={`${num}.`} /> : null}
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -51,7 +57,6 @@ export function CourseStudio({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
-  const [side, setSide] = useState<"outline" | "map">("outline");
   const [histOpen, setHistOpen] = useState(false);
   const [matsOpen, setMatsOpen] = useState(false);
   const [bindVal, setBindVal] = useState("");
@@ -147,6 +152,119 @@ export function CourseStudio({
           <span className="studio-title-static">{course?.item.title ?? "写一本新书"}</span>
         )}
         {locked ? <span className="studio-flag">只读档案</span> : null}
+        {course ? (
+          <div className="bound-row">
+            <span className="muted">已绑定：</span>
+            {course.bindings.length + course.assets.length === 0 ? (
+              <span className="muted">暂无材料</span>
+            ) : null}
+            {course.bindings.map((b) => (
+              <span key={`${b.kind}:${b.targetId}`} className="bound-chip">
+                {b.kind === "collection" ? "收藏夹" : "Wiki"}「{b.title}」
+              </span>
+            ))}
+            {course.assets.map((a) => (
+              <span key={a.id} className="bound-chip">
+                <IconPage />
+                {a.filename}
+              </span>
+            ))}
+            {locked ? null : (
+              <button
+                type="button"
+                className={`icon-btn${matsOpen ? " on" : ""}`}
+                aria-label="管理参考材料"
+                title="管理参考材料"
+                onClick={() => {
+                  setMatsOpen((v) => !v);
+                  setHistOpen(false);
+                }}
+              >
+                <IconClip />
+              </button>
+            )}
+          </div>
+        ) : null}
+        {matsOpen && course ? (
+          <div className="studio-pop">
+            <div className="studio-pop-head">参考材料</div>
+            {course.bindings.map((b) => (
+              <span key={`${b.kind}:${b.targetId}`} className="pill">
+                {b.kind === "collection" ? "收藏夹" : "Wiki"}「{b.title}」
+                {locked ? null : (
+                  <button
+                    type="button"
+                    aria-label="去掉"
+                    onClick={() =>
+                      void api.removeCourseBinding(course.item.id, b.kind, b.targetId).then(setCourse)
+                    }
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+            {course.assets.map((a) => (
+              <span key={a.id} className="pill">
+                {a.filename}
+                {locked ? null : (
+                  <button
+                    type="button"
+                    aria-label="去掉"
+                    onClick={() => void api.removeCourseAsset(course.item.id, a.id).then(setCourse)}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+            {locked ? null : (
+              <>
+                <form
+                  className="link-add tight"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void onBind();
+                  }}
+                >
+                  <select value={bindVal} onChange={(e) => setBindVal(e.target.value)}>
+                    <option value="">绑定材料…</option>
+                    <optgroup label="收藏夹">
+                      {targets.collections.map((c) => (
+                        <option key={c.id} value={`collection:${c.id}`}>
+                          {c.title}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Wiki / 收藏">
+                      {targets.items.map((it) => (
+                        <option key={it.id} value={`item:${it.id}`}>
+                          {it.title}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  <button type="submit" className="chip" disabled={!bindVal}>
+                    绑定
+                  </button>
+                </form>
+                <label className="chip file-chip">
+                  上传文件
+                  <input
+                    type="file"
+                    accept=".pdf,.epub,.txt,.md,.html"
+                    hidden
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (file) void api.uploadCourseAsset(course.item.id, file).then(setCourse);
+                    }}
+                  />
+                </label>
+              </>
+            )}
+          </div>
+        ) : null}
       </header>
 
       <section className="studio-chat">
@@ -158,11 +276,7 @@ export function CourseStudio({
                 : "先说你要学什么、基础和范围。有目录之后，右侧才会出现大纲和导图。"}
             </div>
           ) : (
-            messages.map((m) => (
-              <div key={m.id} className={`bubble ${m.role}`}>
-                {m.role === "assistant" ? <MarkdownView compact>{m.content}</MarkdownView> : m.content}
-              </div>
-            ))
+            messages.map((m) => <ChatBubble key={m.id} message={m} pending={busy} />)
           )}
         </div>
         {err ? (
@@ -172,87 +286,6 @@ export function CourseStudio({
         ) : null}
 
         <div className="studio-dock">
-          {matsOpen && course ? (
-            <div className="studio-pop">
-              <div className="studio-pop-head">参考材料</div>
-              {course.bindings.map((b) => (
-                <span key={`${b.kind}:${b.targetId}`} className="pill">
-                  {b.kind === "collection" ? "收藏夹" : "Wiki"}「{b.title}」
-                  {locked ? null : (
-                    <button
-                      type="button"
-                      aria-label="去掉"
-                      onClick={() =>
-                        void api.removeCourseBinding(course.item.id, b.kind, b.targetId).then(setCourse)
-                      }
-                    >
-                      ×
-                    </button>
-                  )}
-                </span>
-              ))}
-              {course.assets.map((a) => (
-                <span key={a.id} className="pill">
-                  {a.filename}
-                  {locked ? null : (
-                    <button
-                      type="button"
-                      aria-label="去掉"
-                      onClick={() => void api.removeCourseAsset(course.item.id, a.id).then(setCourse)}
-                    >
-                      ×
-                    </button>
-                  )}
-                </span>
-              ))}
-              {locked ? null : (
-                <>
-                  <form
-                    className="link-add tight"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void onBind();
-                    }}
-                  >
-                    <select value={bindVal} onChange={(e) => setBindVal(e.target.value)}>
-                      <option value="">绑定材料…</option>
-                      <optgroup label="收藏夹">
-                        {targets.collections.map((c) => (
-                          <option key={c.id} value={`collection:${c.id}`}>
-                            {c.title}
-                          </option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="Wiki / 收藏">
-                        {targets.items.map((it) => (
-                          <option key={it.id} value={`item:${it.id}`}>
-                            {it.title}
-                          </option>
-                        ))}
-                      </optgroup>
-                    </select>
-                    <button type="submit" className="chip" disabled={!bindVal}>
-                      绑定
-                    </button>
-                  </form>
-                  <label className="chip file-chip">
-                    上传文件
-                    <input
-                      type="file"
-                      accept=".pdf,.epub,.txt,.md,.html"
-                      hidden
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        e.target.value = "";
-                        if (file) void api.uploadCourseAsset(course.item.id, file).then(setCourse);
-                      }}
-                    />
-                  </label>
-                </>
-              )}
-            </div>
-          ) : null}
-
           {histOpen ? (
             <aside className="studio-history">
               <button type="button" className="history-new" onClick={() => void startNew()}>
@@ -285,19 +318,6 @@ export function CourseStudio({
               void send();
             }}
           >
-            {locked ? null : (
-              <button
-                type="button"
-                className={`icon-btn${matsOpen ? " on" : ""}`}
-                aria-label="参考材料"
-                onClick={() => {
-                  setMatsOpen((v) => !v);
-                  setHistOpen(false);
-                }}
-              >
-                <IconClip />
-              </button>
-            )}
             {locked ? (
               <div className="studio-locked-input">目录已锁定，只能回看这场对话。</div>
             ) : (
@@ -337,26 +357,34 @@ export function CourseStudio({
 
       {hasTree && course ? (
         <aside className="studio-side">
-          <div className="filters">
-            <button type="button" className={side === "outline" ? "active" : ""} onClick={() => setSide("outline")}>
-              大纲
-            </button>
-            <button type="button" className={side === "map" ? "active" : ""} onClick={() => setSide("map")}>
-              导图
-            </button>
+          <div className="studio-cards">
+            <section className="studio-card outline">
+              <div className="studio-card-head">课程大纲</div>
+              <div className="studio-card-body">
+                <OutlineList nodes={course.tree} />
+              </div>
+            </section>
+            <section className="studio-card">
+              <div className="studio-card-head">思维导图</div>
+              <div className="studio-card-body map">
+                <CourseMindMap title={course.item.title} tree={course.tree} />
+              </div>
+            </section>
           </div>
-          <div className="studio-side-body">
-            {side === "outline" ? <OutlineList nodes={course.tree} /> : <CourseMindMap tree={course.tree} />}
+          <div className="studio-side-foot">
+            {locked ? (
+              <button type="button" className="primary-btn" onClick={() => onOpenBook(course.item.id)}>
+                打开这本书
+              </button>
+            ) : (
+              <button type="button" className="primary-btn" disabled={leaves === 0} onClick={() => void confirm()}>
+                确认目录，生成课程
+              </button>
+            )}
+            <span className="muted">
+              {locked ? "目录已锁定。" : `共 ${leaves} 个课时。确认后锁定目录，正文在第一次打开时生成。`}
+            </span>
           </div>
-          {locked ? (
-            <button type="button" className="primary-btn" onClick={() => onOpenBook(course.item.id)}>
-              打开这本书
-            </button>
-          ) : (
-            <button type="button" className="primary-btn" disabled={leaves === 0} onClick={() => void confirm()}>
-              确认目录，生成课程
-            </button>
-          )}
         </aside>
       ) : null}
     </div>

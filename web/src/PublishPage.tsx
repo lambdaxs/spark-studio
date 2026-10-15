@@ -1,24 +1,22 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { AgentPanel } from "./AgentPanel";
 import { HoverDelete } from "./HoverDelete";
+import { IconPlus } from "./Icons";
 import { MarkdownDoc } from "./MarkdownDoc";
-import {
-  api,
-  type DraftDetail,
-  type DraftRow,
-  type Platform,
-} from "./api";
+import { SearchBox } from "./SearchBox";
+import { api, type DraftDetail, type DraftRow, type Platform, type Variant } from "./api";
 import { matchesQuery, useQuery } from "./shell";
 
 type Tab = "base" | Platform;
-type Filter = { kind: "all" } | { kind: "ready" };
+type Filter = "all" | "ready";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "base", label: "底稿" },
-  { id: "wechat", label: "公众号" },
-  { id: "xiaohongshu", label: "小红书" },
-  { id: "zhihu", label: "知乎专栏" },
+const PLATFORMS: { id: Platform; label: string; short: string }[] = [
+  { id: "wechat", label: "公众号", short: "公众号" },
+  { id: "xiaohongshu", label: "小红书", short: "小红书" },
+  { id: "zhihu", label: "知乎专栏", short: "知乎" },
 ];
+
+const TABS: { id: Tab; label: string }[] = [{ id: "base", label: "底稿" }, ...PLATFORMS];
 
 const TAB_LABEL: Record<Tab, string> = {
   base: "底稿",
@@ -27,30 +25,37 @@ const TAB_LABEL: Record<Tab, string> = {
   zhihu: "知乎专栏",
 };
 
-function marks(ready: Platform[]) {
-  return TABS.filter((t) => t.id !== "base")
-    .map((t) => `${t.label}${ready.includes(t.id as Platform) ? " ✓" : ""}`)
-    .join(" · ");
+function exportText(draftTitle: string, v: Variant) {
+  const parts = [v.title || draftTitle];
+  if (v.summary) parts.push(v.summary);
+  if (v.body) parts.push(v.body);
+  if (v.tags.length) parts.push(v.tags.map((t) => `#${t.replace(/^#/, "")}`).join(" "));
+  if (v.coverNote) parts.push(`封面：${v.coverNote}`);
+  if (v.imageBriefs.length) parts.push(v.imageBriefs.map((b, i) => `图 ${i + 1}：${b}`).join("\n"));
+  return parts.join("\n\n");
 }
 
 export function PublishPage() {
   const query = useQuery();
   const [rows, setRows] = useState<DraftRow[]>([]);
-  const [filter, setFilter] = useState<Filter>({ kind: "all" });
+  const [filter, setFilter] = useState<Filter>("all");
   const [draft, setDraft] = useState<DraftDetail>();
   const [tab, setTab] = useState<Tab>("base");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [summary, setSummary] = useState("");
-  const [tags, setTags] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagDraft, setTagDraft] = useState("");
   const [cover, setCover] = useState("");
-  const [briefs, setBriefs] = useState("");
+  const [briefs, setBriefs] = useState<string[]>([]);
   const [newTitle, setNewTitle] = useState("");
+  const [composing, setComposing] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   async function refreshList() {
-    const q = filter.kind === "ready" ? { ready: true as const } : {};
-    const list = await api.drafts(q);
+    const list = await api.drafts(filter === "ready" ? { ready: true } : {});
     setRows(list);
     return list;
   }
@@ -60,18 +65,20 @@ export function PublishPage() {
       setTitle(next.item.title);
       setBody(next.item.body);
       setSummary("");
-      setTags("");
+      setTags([]);
       setCover("");
-      setBriefs("");
+      setBriefs([]);
     } else {
       const v = next.variants[nextTab];
       setTitle(v?.title ?? "");
       setBody(v?.body ?? "");
       setSummary(v?.summary ?? "");
-      setTags((v?.tags ?? []).join(" "));
+      setTags(v?.tags ?? []);
       setCover(v?.coverNote ?? "");
-      setBriefs((v?.imageBriefs ?? []).join("\n"));
+      setBriefs(v?.imageBriefs ?? []);
     }
+    setTagDraft("");
+    setCopied(false);
     setDirty(false);
   }
 
@@ -120,12 +127,9 @@ export function PublishPage() {
             title,
             body,
             summary,
-            tags: tags.split(/[,，\s]+/).filter(Boolean),
+            tags,
             coverNote: cover,
-            imageBriefs: briefs
-              .split("\n")
-              .map((l) => l.trim())
-              .filter(Boolean),
+            imageBriefs: briefs.map((l) => l.trim()).filter(Boolean),
           })
           .then((next) => {
             setDraft(next);
@@ -138,71 +142,137 @@ export function PublishPage() {
   }, [title, body, summary, tags, cover, briefs, dirty, draft, tab]);
 
   const variant = tab === "base" ? undefined : draft?.variants[tab];
+  const visible = rows.filter((r) => matchesQuery(query, r.title));
+
+  function edit<T>(set: (v: T) => void) {
+    return (v: T) => {
+      set(v);
+      setDirty(true);
+    };
+  }
+
+  function addTag() {
+    const next = tagDraft.trim().replace(/^#/, "");
+    setTagDraft("");
+    if (!next || tags.includes(next)) return;
+    edit(setTags)([...tags, next]);
+  }
+
+  async function setReady(ready: boolean) {
+    if (!draft || tab === "base") return;
+    const next = await api.saveVariant(draft.item.id, tab, { status: ready ? "ready" : "empty" });
+    setDraft(next);
+    void refreshList();
+  }
+
+  async function copyExport() {
+    if (!draft || !variant) return;
+    await navigator.clipboard.writeText(exportText(draft.item.title, variant));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  }
+
+  async function generate(platform: Platform) {
+    if (!draft) return;
+    setGenerating(true);
+    try {
+      const next = await api.generateVariant(draft.item.id, platform);
+      setDraft(next);
+      loadFields(next, platform);
+      void refreshList();
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   return (
     <div className="publish">
       <aside className="col">
-        <div className="col-head">稿件</div>
-        <div className="filters stacked">
-          <button
-            className={filter.kind === "all" ? "active" : ""}
-            onClick={() => setFilter({ kind: "all" })}
-          >
-            全部
-          </button>
-          <button
-            className={filter.kind === "ready" ? "active" : ""}
-            onClick={() => setFilter({ kind: "ready" })}
-          >
-            可导出
-          </button>
+        <div className="col-head stack">
+          <div className="col-title split">
+            <span>稿件列表</span>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="新建底稿"
+              title="新建底稿"
+              onClick={() => setComposing(true)}
+            >
+              <IconPlus />
+            </button>
+          </div>
+          <SearchBox placeholder="搜索稿件…" />
+          <div className="seg">
+            <button type="button" className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>
+              全部
+            </button>
+            <button
+              type="button"
+              className={filter === "ready" ? "active" : ""}
+              onClick={() => setFilter("ready")}
+            >
+              有可导出
+            </button>
+          </div>
         </div>
-      </aside>
-
-      <section className="col">
-        <div className="col-head">底稿列表</div>
-        {rows.filter((r) => matchesQuery(query, r.title)).length === 0 ? (
+        {composing ? (
+          <form
+            className="add-todo"
+            onSubmit={(e: FormEvent) => {
+              e.preventDefault();
+              if (!newTitle.trim()) return;
+              void api.createDraft({ title: newTitle.trim() }).then(async (created) => {
+                setNewTitle("");
+                setComposing(false);
+                await refreshList();
+                await open(created.item.id);
+              });
+            }}
+          >
+            <input
+              autoFocus
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              onBlur={() => {
+                if (!newTitle.trim()) setComposing(false);
+              }}
+              placeholder="底稿标题，回车创建"
+            />
+          </form>
+        ) : null}
+        {visible.length === 0 ? (
           <div className="empty-col">没有稿件。</div>
         ) : (
-          rows.filter((r) => matchesQuery(query, r.title)).map((r) => (
+          visible.map((r) => (
             <HoverDelete key={r.id} onDelete={() => void remove(r.id)}>
               <button
+                type="button"
                 className={`row ${draft?.item.id === r.id ? "active" : ""}`}
-                onClick={() => void open(r.id, tab === "base" ? "base" : tab)}
+                onClick={() => void open(r.id, tab)}
               >
                 <span className="title">{r.title}</span>
-                <span className="meta">{marks(r.ready)}</span>
+                <span className="marks">
+                  {PLATFORMS.map((p) => (
+                    <span key={p.id} className={r.ready.includes(p.id) ? "on" : ""}>
+                      {r.ready.includes(p.id) ? "✓ " : ""}
+                      {p.short}
+                    </span>
+                  ))}
+                </span>
               </button>
             </HoverDelete>
           ))
         )}
-        <form
-          className="add-todo"
-          onSubmit={(e: FormEvent) => {
-            e.preventDefault();
-            if (!newTitle.trim()) return;
-            void api.createDraft({ title: newTitle.trim() }).then(async (created) => {
-              setNewTitle("");
-              await refreshList();
-              await open(created.item.id);
-            });
-          }}
-        >
-          <input
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="新建底稿"
-          />
-        </form>
-      </section>
+      </aside>
 
-      <article className="col">
+      <article className="col publish-main">
         {draft ? (
-          <div className="reader">
-            <div className="filters">
+          <>
+            <div className="tabs">
               {TABS.map((t) => (
                 <button
                   key={t.id}
+                  type="button"
                   className={tab === t.id ? "active" : ""}
                   onClick={() => {
                     setTab(t.id);
@@ -210,113 +280,146 @@ export function PublishPage() {
                   }}
                 >
                   {t.label}
-                  {t.id !== "base" && draft.variants[t.id]?.status === "ready" ? " ✓" : ""}
+                  {t.id !== "base" && draft.variants[t.id]?.status === "ready" ? (
+                    <span className="tab-dot" aria-label="可导出" />
+                  ) : null}
                 </button>
               ))}
             </div>
 
             {tab !== "base" && !variant ? (
-              <div className="empty-col">
-                <p>还没有{TAB_LABEL[tab]}变体。</p>
+              <div className="variant-empty">
+                <p>还没有{TAB_LABEL[tab]}版本。</p>
                 <button
                   type="button"
                   className="primary-btn"
-                  onClick={() =>
-                    void api.generateVariant(draft.item.id, tab).then((next) => {
-                      setDraft(next);
-                      loadFields(next, tab);
-                      void refreshList();
-                    })
-                  }
+                  disabled={generating}
+                  onClick={() => void generate(tab)}
                 >
-                  从底稿生成
+                  {generating ? "生成中…" : "从底稿生成"}
                 </button>
               </div>
-            ) : (
-              <>
-                <input
-                  className="title-input"
-                  value={title}
-                  onChange={(e) => {
-                    setTitle(e.target.value);
-                    setDirty(true);
-                  }}
-                />
-                {tab === "base" ? null : (
-                  <div className="variant-fields">
-                    <label className="field">
-                      <span>摘要</span>
-                      <input
-                        value={summary}
-                        onChange={(e) => {
-                          setSummary(e.target.value);
-                          setDirty(true);
-                        }}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>标签 / 话题</span>
-                      <input
-                        value={tags}
-                        onChange={(e) => {
-                          setTags(e.target.value);
-                          setDirty(true);
-                        }}
-                        placeholder="空格分隔"
-                      />
-                    </label>
-                    <label className="field">
-                      <span>封面说明</span>
-                      <input
-                        value={cover}
-                        onChange={(e) => {
-                          setCover(e.target.value);
-                          setDirty(true);
-                        }}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>配图说明（一行一张）</span>
-                      <textarea
-                        className="body-input short"
-                        value={briefs}
-                        onChange={(e) => {
-                          setBriefs(e.target.value);
-                          setDirty(true);
-                        }}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="chip"
-                      onClick={() =>
-                        void api
-                          .saveVariant(draft.item.id, tab, {
-                            status: variant?.status === "ready" ? "empty" : "ready",
-                          })
-                          .then((next) => {
-                            setDraft(next);
-                            void refreshList();
-                          })
-                      }
-                    >
-                      {variant?.status === "ready" ? "取消可导出" : "标为可导出"}
-                    </button>
-                  </div>
-                )}
+            ) : tab === "base" ? (
+              <div className="reader">
+                <input className="title-input" value={title} onChange={(e) => edit(setTitle)(e.target.value)} />
                 <MarkdownDoc
                   value={body}
                   editable
                   defaultMode="view"
-                  placeholder="写底稿或平台正文"
-                  onChange={(next) => {
-                    setBody(next);
-                    setDirty(true);
-                  }}
+                  placeholder="写底稿。各平台版本都从这里生成。"
+                  onChange={edit(setBody)}
                 />
+              </div>
+            ) : (
+              <>
+                <div className="reader variant">
+                  <h2 className="variant-title">{draft.item.title}</h2>
+                  <div className="kv">
+                    <label>
+                      <span className="k">平台标题</span>
+                      <input value={title} onChange={(e) => edit(setTitle)(e.target.value)} />
+                    </label>
+                    <label>
+                      <span className="k">摘要</span>
+                      <input
+                        value={summary}
+                        placeholder="一句话摘要"
+                        onChange={(e) => edit(setSummary)(e.target.value)}
+                      />
+                    </label>
+                    <div className="kv-row">
+                      <span className="k">话题</span>
+                      <div className="tag-chips">
+                        {tags.map((t) => (
+                          <span key={t} className="tag-chip">
+                            #{t}
+                            <button
+                              type="button"
+                              aria-label={`去掉 ${t}`}
+                              onClick={() => edit(setTags)(tags.filter((x) => x !== t))}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        <input
+                          value={tagDraft}
+                          placeholder="+ 话题"
+                          onChange={(e) => setTagDraft(e.target.value)}
+                          onBlur={addTag}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              addTag();
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <label>
+                      <span className="k">封面</span>
+                      <input
+                        value={cover}
+                        placeholder="封面画面描述"
+                        onChange={(e) => edit(setCover)(e.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="section-h">图文说明</div>
+                  <ol className="briefs">
+                    {briefs.map((b, i) => (
+                      <li key={i}>
+                        <span className="brief-n">图 {i + 1}：</span>
+                        <input
+                          value={b}
+                          placeholder="这张图画什么"
+                          onChange={(e) => edit(setBriefs)(briefs.map((x, j) => (j === i ? e.target.value : x)))}
+                        />
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          aria-label="删掉这张"
+                          onClick={() => edit(setBriefs)(briefs.filter((_, j) => j !== i))}
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                  <button type="button" className="text-btn" onClick={() => edit(setBriefs)([...briefs, ""])}>
+                    + 添加一张配图
+                  </button>
+
+                  <div className="section-h">正文</div>
+                  <MarkdownDoc
+                    value={body}
+                    editable
+                    defaultMode="view"
+                    placeholder={`写${TAB_LABEL[tab]}正文`}
+                    onChange={edit(setBody)}
+                  />
+                </div>
+                <div className="export-bar">
+                  {variant?.status === "ready" ? (
+                    <>
+                      <button type="button" className="primary-btn" onClick={() => void copyExport()}>
+                        {copied ? "已复制到剪贴板" : `导出到${TAB_LABEL[tab]}（已就绪）`}
+                      </button>
+                      <button type="button" className="text-btn muted" onClick={() => void setReady(false)}>
+                        撤回就绪
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" className="primary-btn" onClick={() => void setReady(true)}>
+                      标为可导出
+                    </button>
+                  )}
+                  <span className="badge ok">已生成</span>
+                </div>
               </>
             )}
-          </div>
+          </>
         ) : (
           <div className="empty-col">选择或新建一篇底稿。</div>
         )}
@@ -327,10 +430,10 @@ export function PublishPage() {
         extra={tab === "base" ? { surface: "base" } : { surface: tab }}
         context={
           draft
-            ? `当前稿「${draft.item.title}」· ${TAB_LABEL[tab]}`
+            ? `当前稿件：${draft.item.title} · 平台：${TAB_LABEL[tab]}`
             : "选择一篇后，对话会跟这篇和当前标签走。"
         }
-        placeholder="基于当前这篇提问…"
+        placeholder="基于当前稿件提问…"
       />
     </div>
   );

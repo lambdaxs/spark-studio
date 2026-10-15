@@ -1,7 +1,25 @@
 import { useEffect, useState } from "react";
 import { api, streamChat, type ChatMessage } from "./api";
-import { IconSend } from "./Icons";
+import { IconAgent, IconSend } from "./Icons";
 import { MarkdownView } from "./MarkdownDoc";
+
+export function ChatBubble({ message, pending }: { message: ChatMessage; pending?: boolean }) {
+  if (message.role === "user") return <div className="bubble user">{message.content}</div>;
+  return (
+    <div className="bubble-row">
+      <span className="bubble-avatar">
+        <IconAgent />
+      </span>
+      <div className="bubble assistant">
+        {message.content ? (
+          <MarkdownView compact>{message.content}</MarkdownView>
+        ) : pending ? (
+          <span className="bubble-wait">思考中…</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 export function AgentPanel({
   itemId,
@@ -59,13 +77,16 @@ export function AgentPanel({
 
   return (
     <aside className="col agent">
-      <div className="agent-head">Agent</div>
+      <div className="agent-head">
+        <span className="agent-mark">
+          <IconAgent size={12} />
+        </span>
+        Agent
+      </div>
       <div className="agent-ctx">{context}</div>
       <div className="agent-log" key={itemId ?? "none"}>
         {messages.map((m) => (
-          <div key={m.id} className={`bubble ${m.role}`}>
-            {m.role === "assistant" ? <MarkdownView compact>{m.content}</MarkdownView> : m.content}
-          </div>
+          <ChatBubble key={m.id} message={m} pending={busy} />
         ))}
       </div>
       {err ? (

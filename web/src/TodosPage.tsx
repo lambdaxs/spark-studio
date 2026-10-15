@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AgentPanel } from "./AgentPanel";
 import { HoverDelete } from "./HoverDelete";
 import { MarkdownDoc } from "./MarkdownDoc";
+import { SearchBox } from "./SearchBox";
 import { api, type ItemDetail, type ItemLink, type TodoRow } from "./api";
 import { matchesQuery, useQuery } from "./shell";
 
@@ -146,10 +147,17 @@ export function TodosPage() {
   const linkedIds = new Set(item?.links.map((l) => l.id));
   const unusedTargets = targets.filter((t) => !linkedIds.has(t.id));
 
+  const visible = rows.filter((r) => matchesQuery(query, r.title));
+  const listTitle = view === "open" ? "未完成任务" : view === "today" ? "今天" : "全部任务";
+  const dueMs = due ? new Date(`${due}T12:00:00`).getTime() : null;
+  const dueUrgent = dueMs != null && item?.status !== "done" && startOfDay(dueMs) <= startOfDay(Date.now());
+
   return (
     <div className="todos">
       <aside className="col views">
-        <div className="col-head">视图</div>
+        <div className="col-head">
+          <div className="col-title muted">视图</div>
+        </div>
         {(["open", "today", "all"] as const).map((v) => (
           <button
             key={v}
@@ -167,18 +175,24 @@ export function TodosPage() {
       </aside>
 
       <section className="col">
-        <div className="col-head split">
-          <span>任务列表</span>
-          <button
-            type="button"
-            className="text-btn"
-            onClick={() => {
-              setComposing(true);
-              setNewTitle("");
-            }}
-          >
-            + 新建任务
-          </button>
+        <div className="col-head stack">
+          <div className="col-title split">
+            <span>
+              {listTitle}
+              <span className="col-count">（{visible.length}）</span>
+            </span>
+            <button
+              type="button"
+              className="text-btn"
+              onClick={() => {
+                setComposing(true);
+                setNewTitle("");
+              }}
+            >
+              + 新建任务
+            </button>
+          </div>
+          <SearchBox placeholder="搜索任务…" />
         </div>
         {composing ? (
           <form className="add-todo" onSubmit={(e) => void addTodo(e)}>
@@ -193,10 +207,10 @@ export function TodosPage() {
             />
           </form>
         ) : null}
-        {rows.filter((r) => matchesQuery(query, r.title)).length === 0 ? (
+        {visible.length === 0 ? (
           <div className="empty-col">没有待办。</div>
         ) : (
-          rows.filter((r) => matchesQuery(query, r.title)).map((r) => (
+          visible.map((r) => (
             <HoverDelete
               key={r.id}
               className={`row todo-row ${item?.id === r.id ? "active" : ""}`}
@@ -210,7 +224,9 @@ export function TodosPage() {
               />
               <button type="button" className="todo-copy" onClick={() => void open(r.id)}>
                 <span className={`title ${r.status === "done" ? "done" : ""}`}>{r.title}</span>
-                <span className={`meta${r.dueAt && isToday(r.dueAt) ? " today" : ""}`}>
+                <span
+                  className={`due${r.dueAt && r.status !== "done" && startOfDay(r.dueAt) <= startOfDay(Date.now()) ? " urgent" : ""}`}
+                >
                   {formatDueShort(r.dueAt)}
                 </span>
               </button>
@@ -219,130 +235,135 @@ export function TodosPage() {
         )}
       </section>
 
-      <article className="col">
-        <div className="col-head">任务备注</div>
-        {item ? (
-          <div className="reader todo-note">
-            <input
-              className="title-input"
-              value={title}
-              onChange={(e) => {
-                setTitle(e.target.value);
-                setDirty(true);
-              }}
-            />
-            <div className="todo-meta">
-              {editingDue ? (
-                <label className="due-edit">
-                  <span>截止日期</span>
-                  <input
-                    type="date"
-                    value={due}
-                    autoFocus
-                    onChange={(e) => {
-                      setDue(e.target.value);
-                      setDirty(true);
-                    }}
-                    onBlur={() => setEditingDue(false)}
-                  />
-                </label>
-              ) : (
-                <button type="button" onClick={() => setEditingDue(true)}>
-                  截止日期 · {due ? formatDueLong(new Date(`${due}T12:00:00`).getTime()) : "未定"}
-                </button>
-              )}
-            </div>
-            <MarkdownDoc
-              value={note}
-              editable
-              quiet
-              defaultMode="view"
-              placeholder="点这里写备注"
-              onChange={(next) => {
-                setNote(next);
-                setDirty(true);
-              }}
-            />
-            <div className="todo-links">
-              {wikiLinks.length > 0 ? (
-                <div className="link-line">
-                  <span className="link-k">链接到 Wiki：</span>
-                  {wikiLinks.map((l) => (
-                    <span key={l.id} className="wiki-pill">
-                      {l.title}
-                      <button
-                        type="button"
-                        aria-label="移除"
-                        onClick={() => void api.removeLink(item.id, l.id).then(setItem)}
-                      >
-                        ×
-                      </button>
+      <div className="todo-side">
+        <article className="col todo-detail">
+          {item ? (
+            <div className="todo-note">
+              <input
+                className="title-input small"
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  setDirty(true);
+                }}
+              />
+              <div className="todo-meta">
+                {editingDue ? (
+                  <label className="due-edit">
+                    <span>截止</span>
+                    <input
+                      type="date"
+                      value={due}
+                      autoFocus
+                      onChange={(e) => {
+                        setDue(e.target.value);
+                        setDirty(true);
+                      }}
+                      onBlur={() => setEditingDue(false)}
+                    />
+                  </label>
+                ) : (
+                  <button type="button" onClick={() => setEditingDue(true)}>
+                    截止：
+                    <span className={dueUrgent ? "urgent" : ""}>
+                      {dueMs == null ? "未定" : isToday(dueMs) ? "今天" : formatDueLong(dueMs)}
                     </span>
-                  ))}
-                </div>
-              ) : null}
-              {otherLinks.length > 0 ? (
-                <div className="link-line">
-                  <span className="link-k">链接到收藏：</span>
-                  {otherLinks.map((l) => (
-                    <span key={l.id} className="wiki-pill">
-                      {l.title}
-                      <button
-                        type="button"
-                        aria-label="移除"
-                        onClick={() => void api.removeLink(item.id, l.id).then(setItem)}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              {addingLink ? (
-                <form
-                  className="link-add"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!linkId) return;
-                    void api.addLink(item.id, linkId).then((next) => {
-                      setItem(next);
-                      setLinkId("");
-                      setAddingLink(false);
-                    });
-                  }}
-                >
-                  <select value={linkId} onChange={(e) => setLinkId(e.target.value)}>
-                    <option value="">链到 Wiki 或收藏…</option>
-                    {unusedTargets.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.type === "wiki" ? "Wiki" : "收藏"} · {t.title}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="submit" className="chip" disabled={!linkId}>
-                    添加
                   </button>
-                </form>
-              ) : (
-                <button type="button" className="text-btn" onClick={() => setAddingLink(true)}>
-                  + 链接
-                </button>
-              )}
+                )}
+                <span className="todo-created">创建于 {formatDueLong(item.createdAt || Date.now())}</span>
+              </div>
+              <div className="note-card">
+                <div className="note-label">任务备注</div>
+                <MarkdownDoc
+                  value={note}
+                  editable
+                  quiet
+                  defaultMode="view"
+                  placeholder="点这里写备注"
+                  onChange={(next) => {
+                    setNote(next);
+                    setDirty(true);
+                  }}
+                />
+                <div className="todo-links">
+                  {wikiLinks.length > 0 ? (
+                    <div className="link-line">
+                      <span className="link-k">链接到 Wiki：</span>
+                      {wikiLinks.map((l) => (
+                        <span key={l.id} className="wiki-pill">
+                          {l.title}
+                          <button
+                            type="button"
+                            aria-label="移除"
+                            onClick={() => void api.removeLink(item.id, l.id).then(setItem)}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {otherLinks.length > 0 ? (
+                    <div className="link-line">
+                      <span className="link-k">链接到收藏：</span>
+                      {otherLinks.map((l) => (
+                        <span key={l.id} className="wiki-pill">
+                          {l.title}
+                          <button
+                            type="button"
+                            aria-label="移除"
+                            onClick={() => void api.removeLink(item.id, l.id).then(setItem)}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {addingLink ? (
+                    <form
+                      className="link-add"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!linkId) return;
+                        void api.addLink(item.id, linkId).then((next) => {
+                          setItem(next);
+                          setLinkId("");
+                          setAddingLink(false);
+                        });
+                      }}
+                    >
+                      <select value={linkId} onChange={(e) => setLinkId(e.target.value)}>
+                        <option value="">链到 Wiki 或收藏…</option>
+                        {unusedTargets.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.type === "wiki" ? "Wiki" : "收藏"} · {t.title}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="submit" className="chip" disabled={!linkId}>
+                        添加
+                      </button>
+                    </form>
+                  ) : (
+                    <button type="button" className="text-btn" onClick={() => setAddingLink(true)}>
+                      + 链接
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="created-at">
-              创建时间 {formatDueLong(item.createdAt || Date.now())}
-            </div>
-          </div>
-        ) : (
-          <div className="empty-col">选择一条待办。</div>
-        )}
-      </article>
+          ) : (
+            <div className="empty-col">选择一条待办。</div>
+          )}
+        </article>
 
-      <AgentPanel
-        itemId={item?.id}
-        context={item ? `当前任务「${item.title}」` : "选择一条后，对话会跟这条走。"}
-        placeholder="基于当前任务提问…"
-      />
+        <AgentPanel
+          itemId={item?.id}
+          context={item ? `当前任务：${item.title}` : "选择一条后，对话会跟这条走。"}
+          placeholder="基于当前任务提问…"
+        />
+      </div>
     </div>
   );
 }

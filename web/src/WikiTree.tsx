@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { HoverDelete } from "./HoverDelete";
-import { IconChevron, IconPage } from "./Icons";
+import { IconChevron, IconFolder, IconPage } from "./Icons";
 import type { WikiNode } from "./api";
 
 const COLLAPSED_KEY = "wiki-tree-collapsed";
@@ -203,10 +203,9 @@ export function WikiTree({
                   <IconChevron open={open} />
                 </button>
               ) : (
-                <span className="wiki-leaf">
-                  <IconPage />
-                </span>
+                <span className="wiki-twist-gap" />
               )}
+              <span className="wiki-leaf">{hasKids ? <IconFolder /> : <IconPage />}</span>
               <span className="wiki-title">{n.title}</span>
             </div>
           </HoverDelete>

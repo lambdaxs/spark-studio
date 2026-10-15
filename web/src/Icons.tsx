@@ -137,6 +137,65 @@ export function IconClip() {
   );
 }
 
+export function IconTrash() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l.9 12.2A1.5 1.5 0 0 0 8.9 20.5h6.2a1.5 1.5 0 0 0 1.5-1.3L17.5 7" />
+      <path d="M10 11v5.5M14 11v5.5" />
+    </svg>
+  );
+}
+
+export function IconLogout() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <path d="M14 4.5H6A1.5 1.5 0 0 0 4.5 6v12A1.5 1.5 0 0 0 6 19.5h8" />
+      <path d="M10.5 12H20M16.5 8.5 20 12l-3.5 3.5" />
+    </svg>
+  );
+}
+
+export function IconLogo() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24">
+      <rect x="1" y="1" width="22" height="22" rx="6" fill="#1d4ed8" />
+      <path d="M7 7.5h6.5a3 3 0 0 1 0 6H7z" fill="#93c5fd" />
+      <path d="M7 13.5h7.5a3 3 0 0 1 0 6H7z" fill="#fff" />
+    </svg>
+  );
+}
+
+export function IconAgent({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="m8.5 12.2 2.4 2.4 4.8-5" />
+    </svg>
+  );
+}
+
+export function IconCircle({ state }: { state: "done" | "current" | "todo" }) {
+  if (state === "done") {
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" fill="#2563eb" />
+        <path d="m8 12.3 2.8 2.7L16.2 9.5" fill="none" stroke="#fff" strokeWidth="2.2" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+      <circle
+        cx="12"
+        cy="12"
+        r="8.5"
+        stroke={state === "current" ? "#2563eb" : "#c9c3b9"}
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
 export function IconChevron({ open }: { open?: boolean }) {
   return (
     <svg

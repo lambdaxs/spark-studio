@@ -1,5 +1,6 @@
 import { HoverDelete } from "./HoverDelete";
 import { IconPlus } from "./Icons";
+import { SearchBox } from "./SearchBox";
 import type { CourseRow } from "./api";
 
 function tone(id: string) {
@@ -24,8 +25,9 @@ export function CourseShelf({
   return (
     <div className="shelf">
       <div className="shelf-head">
-        <span>书架</span>
-        <button type="button" className="text-btn" onClick={onWrite}>
+        <span className="shelf-title">我的课程</span>
+        <SearchBox placeholder="搜索课程…" />
+        <button type="button" className="primary-btn" onClick={onWrite}>
           <IconPlus />
           写一本新书
         </button>

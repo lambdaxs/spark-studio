@@ -1,9 +1,16 @@
 import { createContext, useContext } from "react";
 
-export const ShellContext = createContext({ query: "" });
+export const ShellContext = createContext<{ query: string; setQuery: (q: string) => void }>({
+  query: "",
+  setQuery: () => {},
+});
 
 export function useQuery() {
   return useContext(ShellContext).query;
+}
+
+export function useShell() {
+  return useContext(ShellContext);
 }
 
 export function matchesQuery(query: string, ...parts: Array<string | null | undefined>) {
